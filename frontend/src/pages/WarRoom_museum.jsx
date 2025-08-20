@@ -44,17 +44,27 @@ function WarRoom_museum() {
 					<ul className="warroom-list">
 						<li><b>Location</b>: Kanpur, Varanasi, Prayagraj in Uttar Pradesh, and Haridwar in Uttarakhand</li>
 						<li><b>Different sections</b>: Introduction Gallery, Aquatic Life Gallery, Pollution Control Gallery, Sewage Treatment Gallery, Interactive Gallery.</li>
-						<li><b>Timings</b>
-							<ul style={{ marginTop: '0.5rem' }}>
-								<li>Sunday: Holiday</li>
-								<li>Monday: 10:00 AM to 5:00 PM</li>
-								<li>Tuesday: 10:00 AM to 5:00 PM</li>
-								<li>Wednesday: 10:00 AM to 5:00 PM</li>
-								<li>Thursday: 10:00 AM to 5:00 PM</li>
-								<li>Friday: 10:00 AM to 5:00 PM</li>
-								<li>Saturday: 10:00 AM to 5:00 PM</li>
-							</ul>
-						</li>
+									<li><b>Timings</b>
+										<div className="warroom-table-container">
+											<table className="warroom-table">
+												<thead>
+													<tr>
+														<th>Day</th>
+														<th>Timings</th>
+													</tr>
+												</thead>
+												<tbody>
+													<tr><td>Sunday</td><td>Holiday</td></tr>
+													<tr><td>Monday</td><td>10:00 AM to 5:00 PM</td></tr>
+													<tr><td>Tuesday</td><td>10:00 AM to 5:00 PM</td></tr>
+													<tr><td>Wednesday</td><td>10:00 AM to 5:00 PM</td></tr>
+													<tr><td>Thursday</td><td>10:00 AM to 5:00 PM</td></tr>
+													<tr><td>Friday</td><td>10:00 AM to 5:00 PM</td></tr>
+													<tr><td>Saturday</td><td>10:00 AM to 5:00 PM</td></tr>
+												</tbody>
+											</table>
+										</div>
+									</li>
 					</ul>
 				</div>
 			</div>

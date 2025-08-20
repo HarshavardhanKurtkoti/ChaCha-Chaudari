@@ -1,3 +1,55 @@
+/* Table styling for timings */
+
+.warroom-table-container {
+  display: flex;
+  justify-content: center;
+  margin: 2rem 0;
+}
+
+
+.warroom-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 90%;
+  max-width: 700px;
+  background: linear-gradient(90deg, #f8fafc 0%, #e0f2fe 100%);
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow: 0 4px 32px rgba(30,41,59,0.10);
+  margin: 0 auto;
+}
+.warroom-table th, .warroom-table td {
+  padding: 0.5rem 2.5rem;
+  text-align: center;
+  height: 36px;
+}
+.warroom-table th {
+  background: #bae6fd;
+  color: #0f172a;
+  font-weight: 800;
+  font-size: 1.15rem;
+  letter-spacing: 1px;
+  border-bottom: 2px solid #7dd3fc;
+}
+.warroom-table tr {
+  background: #f1f5f9;
+}
+.warroom-table tr:nth-child(even) {
+  background: #e0f2fe;
+}
+.warroom-table td {
+  color: #334155;
+  font-size: 1.05rem;
+  font-weight: 500;
+  border-bottom: 1px solid #bae6fd;
+}
+.warroom-table tr:last-child td {
+  border-bottom: none;
+}
+.warroom-table tr:hover {
+  background: #bae6fd;
+  transition: background 0.2s;
+}
 /* WarRoom_museum.css */
 
 .warroom-container {
