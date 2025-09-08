@@ -1,5 +1,5 @@
 import React from 'react';
-import { ChachaChaudhary } from 'assets/images';
+import { ChachaChaudhary } from '../assets/images';
 
 const Welcome = () => (
 	<div className='bg-white border-gray-200 border-2 rounded-lg px-8 py-5 mr-20 w-full my-3'>

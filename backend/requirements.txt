@@ -1,0 +1,10 @@
+python-dotenv
+flask
+google-genai
+flask-cors
+pygame
+selenium
+webdriver-manager
+mtranslate
+edge-tts
+python-dotenv

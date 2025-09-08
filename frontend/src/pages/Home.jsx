@@ -1,42 +1,108 @@
-import { Carousel, NavBar } from 'components';
-import React from 'react';
+import { useEffect } from 'react';
+
+import React, { useState } from 'react';
 import Bot from './Bot';
-import chachaImg from '../assets/chacha-cahaudhary/chacha.webp';
+import ChatBot from './ChatBot';
+import CarouselComp from '../components/CarouselComp';
 
 const Home = () => {
+	 useEffect(() => {
+		 // Always play greeting and activate chatbot on mount
+		 const audio = new Audio('/assets/chacha-cahaudhary/Greeting.wav');
+		 audio.play().then(() => {
+			 setTimeout(() => {
+				 window.dispatchEvent(new CustomEvent('activate-chatbot-voice', { detail: { message: 'hello' } }));
+			 }, 2000);
+		 }).catch(() => {
+			 // If autoplay is blocked, wait for user gesture
+			 const gestureHandler = () => {
+				 audio.play();
+				 setTimeout(() => {
+					 window.dispatchEvent(new CustomEvent('activate-chatbot-voice', { detail: { message: 'hello' } }));
+				 }, 2000);
+				 window.removeEventListener('click', gestureHandler);
+				 window.removeEventListener('keydown', gestureHandler);
+			 };
+			 window.addEventListener('click', gestureHandler);
+			 window.addEventListener('keydown', gestureHandler);
+		 });
+		 return () => {
+			 audio.pause();
+			 audio.currentTime = 0;
+		 };
+	 }, []);
+	const [showChat, setShowChat] = useState(false);
+
+	// Redesign: main container is a flex row, left column is flex col (slideshow + text), right is 3D model
+	const mainContainerStyle = {
+		minHeight: showChat ? '700px' : '600px',
+		minWidth: showChat ? '1800px' : '1200px',
+		transition: 'min-width 0.3s, min-height 0.3s',
+		display: 'flex',
+		flexDirection: 'row',
+		alignItems: 'center',
+		justifyContent: 'center',
+		gap: '2rem',
+		width: '100%',
+		height: '100%',
+	};
+
 	return (
-		<section className="w-full min-h-screen flex flex-col bg-gradient-to-br from-yellow-100 via-blue-50 to-yellow-200 relative">
-			<NavBar />
-			{/* Hero Section */}
-			<div className="flex-1 flex flex-col items-center justify-center py-8 px-2 relative">
-				<div className="absolute inset-0 bg-gradient-to-br from-blue-100/60 to-yellow-100/80 pointer-events-none" />
-				<div className="relative z-10 flex flex-col items-center w-full">
-					<h1 className="text-4xl sm:text-5xl font-extrabold text-blue-900 mb-4 text-center drop-shadow-lg">Welcome to Namami Gange</h1>
-					<p className="text-lg sm:text-xl text-blue-800 mb-8 text-center max-w-2xl font-medium">Explore the history, significance, and wonders of the holy river Ganga. Dive into interactive learning and connect with Chacha Chaudhary for a unique experience!</p>
-					<div className="w-full max-w-3xl mb-8 rounded-2xl overflow-hidden shadow-2xl bg-white/90 backdrop-blur">
-						<Carousel />
-					</div>
-					<div className="w-full max-w-2xl mb-8">
-						<div className="bg-white/95 rounded-xl shadow-lg p-6 text-center text-lg font-medium text-gray-700 border border-blue-100 flex flex-col items-center gap-2">
-							<span>To know more about the holy river Ganga—its history, significance, and beyond—try a conversation with</span>
-							<span className="text-blue-700 font-bold cursor-pointer hover:underline text-xl">Chacha Chaudhary</span>
-							<span className="text-gray-500 text-sm">Click on Chacha Chaudhary below to start!</span>
+			<section className="relative w-full min-h-screen flex items-center justify-center bg-gradient-to-br from-yellow-100 via-blue-50 to-yellow-200">
+				{/* Top right chat button */}
+				<button
+					className="absolute top-8 right-8 z-20 px-6 py-3 bg-blue-600 text-white font-bold rounded-xl shadow-lg hover:bg-blue-700 transition"
+					onClick={() => setShowChat(true)}
+				>
+					Chat
+				</button>
+
+				{/* Main redesigned container */}
+				<div style={mainContainerStyle}>
+					{/* Left column: slideshow + text */}
+					<div className="flex flex-col justify-between gap-8" style={{ flex: 1, height: '700px', maxWidth: '600px' }}>
+						{/* Slideshow container */}
+						<div className="bg-white/80 rounded-3xl shadow-xl flex items-center justify-center" style={{ height: '320px', width: '100%' }}>
+							<CarouselComp />
+						</div>
+						{/* Text container */}
+						<div className="bg-white/80 rounded-3xl shadow-xl flex items-center justify-center p-8" style={{ height: '220px', width: '100%' }}>
+							<div className="text-center text-lg font-medium">
+								<p className='text-3xl font-extrabold text-blue-700 mb-4 drop-shadow-lg text-center'>Welcome to the Ganga Knowledge Portal</p>
+								To know more about the holy river Ganga—its history, significance, and beyond—try a conversation with <span className="text-blue-700 font-bold">Chacha Chaudhary</span> by clicking on him.
+							</div>
 						</div>
 					</div>
+					{/* Right column: 3D model only */}
+					<div className="bg-white/80 rounded-3xl shadow-xl flex items-center justify-center" style={{ flex: 1.2, height: '700px', maxWidth: '700px' }}>
+						<Bot />
+					</div>
+					{/* Chat side-by-side if open */}
+					{showChat && (
+						<div className="bg-white/80 rounded-3xl shadow-xl flex flex-col items-center justify-center" style={{ flex: 2, height: '700px', minWidth: '400px' }}>
+							<ChatBot />
+						</div>
+					)}
 				</div>
-				{/* Mascot Floating Button */}
-				<img
-					src={chachaImg}
-					alt="Chacha Chaudhary"
-					className="w-24 sm:w-28 fixed bottom-8 left-8 z-50 drop-shadow-xl transition-transform hover:scale-110 cursor-pointer animate-bounce"
-					title="Talk to Chacha Chaudhary!"
-				/>
-			</div>
-			{/* Bot Section */}
-			<div className="max-w-5xl mx-auto w-full pb-8">
-				<Bot />
-			</div>
-		</section>
+
+				{/* Chat popup modal */}
+				{showChat && (
+					<div className="fixed inset-0 z-30 flex items-center justify-center bg-black bg-opacity-40">
+						<div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl h-[80vh] flex flex-col items-center justify-center p-6">
+							<button
+								className="absolute top-4 right-4 text-gray-500 hover:text-gray-800 text-2xl font-bold"
+								onClick={() => setShowChat(false)}
+								aria-label="Close chat"
+							>
+								&times;
+							</button>
+							<div className="w-full h-full flex items-center justify-center">
+								<ChatBot />
+							</div>
+						</div>
+					</div>
+				)}
+			</section>
 	);
 };
 
