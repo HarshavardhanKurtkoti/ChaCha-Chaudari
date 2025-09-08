@@ -70,6 +70,7 @@ function WarRoom_museum() {
 			</div>
 		</Fragment>
 	);
-}
 
+
+}
 export default WarRoom_museum;
