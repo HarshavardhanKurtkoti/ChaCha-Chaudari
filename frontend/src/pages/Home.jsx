@@ -49,14 +49,15 @@ const Home = () => {
 	const botModelStyle = modelTransition
 		? {
 			position: 'absolute',
-			top: '50%',
-			right: '28vw', // Destination: just left of right container
+			top: '52%',
+			right: '58vw', // Destination: just left of right container
 			transform: 'translateY(-50%)',
 			width: '500px',
 			height: '600px',
 			maxWidth: '500px',
 			pointerEvents: 'none',
 			transition: 'all 0.7s cubic-bezier(0.77,0,0.175,1)',
+			zIndex: 20, // Make model above containers
 		}
 		: {
 			position: 'absolute',
@@ -68,12 +69,13 @@ const Home = () => {
 			maxWidth: '500px',
 			pointerEvents: 'none',
 			transition: 'all 0.7s cubic-bezier(0.77,0,0.175,1)',
+			zIndex: 20, // Make model above containers
 		};
 
 	// Main content container, layered above Bot canvas
 	const mainContainerStyle = {
 		position: 'relative',
-		zIndex: 10,
+		zIndex: 2, // Lower than bot model
 		minHeight: '600px',
 		minWidth: '1200px',
 		display: 'flex',
