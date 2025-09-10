@@ -7,7 +7,7 @@ import ChatBot from './ChatBot';
 import { BotStateContext } from 'context/BotState';
 
 function ChachaModel({ isSpeaking, isOpen }) {
-	const gltf = useGLTF('/src/assets/chacha-cahaudhary/ChaCha.glb');
+	const gltf = useGLTF('/assets/chacha-cahaudhary/ChaCha.glb');
 	// Animate scale based on chat open state
 	// Make the model smaller and always centered
 	const baseScale = 0.9; // smaller scale
@@ -19,7 +19,7 @@ function ChachaModel({ isSpeaking, isOpen }) {
 		</group>
 	);
 }
-useGLTF.preload('/src/assets/chacha-cahaudhary/ChaCha.glb');
+useGLTF.preload('/assets/chacha-cahaudhary/ChaCha.glb');
 
 const Bot = () => {
 	const [isOpen, setIsOpen] = useState(false);

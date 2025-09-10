@@ -182,10 +182,10 @@ const ChatBot = ({ setIsSpeaking }) => {
 	};
 
 	return (
-	<main className='bg-white bg-opacity-60 backdrop-blur-2xl md:rounded-lg md:shadow-md p-6 pt-2 pb-4 w-full h-full flex flex-col'>
-			<h1 className='text-lg text-gray-800  '>Welcome to NMCG - <span className='underline underline-offset-2 text-blue-400'> Chacha Chaudhary</span></h1>
-		<section className='chat-box border-t-4 border-stone-300 pt-2 overflow-y-auto flex-grow pb-4 h-[55vh]'>
-				<div className='flex flex-col space-y-4'>
+	<main className='bg-gray-900 bg-opacity-95 md:rounded-lg md:shadow-md p-6 pt-2 pb-4 w-full h-full flex flex-col'>
+		<h1 className='text-lg text-gray-100 font-semibold mb-2'>Welcome to NMCG - <span className='underline underline-offset-2 text-blue-300'> Chacha Chaudhary</span></h1>
+	<section className='chat-box border-t-4 border-gray-700 pt-2 overflow-y-auto flex-grow pb-4 h-[55vh]'>
+			<div className='flex flex-col space-y-4'>
 					{chatHistory.length === 0 ? (
 						<Fragment>
 							<Welcome />
@@ -207,7 +207,13 @@ const ChatBot = ({ setIsSpeaking }) => {
 							</div>
 						</Fragment>
 					) : (
-						chatHistory.map((chat, i) => <ChatMessage key={i} message={chat} />)
+						chatHistory.map((chat, i) => (
+							<div key={i} className={`flex ${chat.role === 'user' ? 'justify-end' : 'justify-start'} w-full`}>
+								<div className={`rounded-2xl px-5 py-3 shadow-md max-w-[70%] text-base font-medium ${chat.role === 'user' ? 'bg-blue-700 text-white' : 'bg-gray-800 text-gray-100'} mb-2`}>
+									{chat.content}
+								</div>
+							</div>
+						))
 					)}
 
 					{/* Remove currentChat and currentMessage usage, or define them safely */}
@@ -215,35 +221,36 @@ const ChatBot = ({ setIsSpeaking }) => {
 
 				<div ref={bottomRef} />
 			</section>
-			 <div className='chat-box-input-field flex flex-row items-end justify-between gap-4 rounded-xl p-4 bg-gradient-to-r from-blue-50 via-white to-yellow-50 shadow-md border border-gray-200 mt-4'>
+			 <div className='chat-box-input-field flex flex-row items-end justify-between gap-4 rounded-xl p-4 bg-gray-800 shadow-md border border-gray-700 mt-4'>
 				<div className='flex flex-row items-center gap-3'>
-					<button onClick={handleaudio} className='text-3xl'>
+					<button onClick={handleaudio} className='text-3xl text-gray-300 hover:text-blue-400'>
 						{audio ? <HiOutlineSpeakerWave /> : <HiOutlineSpeakerXMark />}
 					</button>
 					<div className='w-32'><SelectLang setLang={setLang} /></div>
 					<button
 						onClick={handleListen}
-						className={listening ? `bg-blue-500 text-white py-2 px-3 rounded-full animate-pulse border-4 border-blue-700` : `bg-gray-200 py-2 px-3 rounded-full border-2 border-gray-400`}
+						className={listening ? `bg-blue-600 text-white py-2 px-3 rounded-full animate-pulse border-4 border-blue-700` : `bg-gray-700 text-gray-200 py-2 px-3 rounded-full border-2 border-gray-600`}
 						disabled={listening}
 						title={listening ? 'Listening...' : 'Start voice input'}
 					>
 						<BsMic className='text-2xl' />
 					</button>
 					{listening && (
-						<span className='ml-2 text-blue-700 font-bold animate-pulse'>Listening...</span>
+						<span className='ml-2 text-blue-400 font-bold animate-pulse'>Listening...</span>
 					)}
 					{listening && (
 						<button
 							onClick={handleStop}
-							className='bg-red-500 text-white py-2 px-3 rounded-full font-bold border-2 border-red-700 ml-2'
+							className='bg-red-600 text-white py-2 px-3 rounded-full font-bold border-2 border-red-700 ml-2'
 						>
 							Stop
 						</button>
 					)}
-					{!listening && (
+					{/* Show Retry only if user has tried and failed, not on initial render */}
+					{!listening && transcript && (
 						<button
 							onClick={handleListen}
-							className='bg-yellow-400 text-black py-2 px-3 rounded-full font-bold border-2 border-yellow-700 ml-2'
+							className='bg-yellow-400 text-black py-2 px-3 rounded-full font-bold border-2 border-yellow-600 ml-2'
 							title='Retry voice input'
 						>
 							Retry
@@ -263,7 +270,7 @@ const ChatBot = ({ setIsSpeaking }) => {
 					<input
 						type='text'
 						ref={inputRef}
-						className='flex-grow rounded-lg p-4 text-lg min-h-[48px] border-2 border-blue-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition-all duration-200 shadow-sm bg-white placeholder-gray-400'
+						className='flex-grow rounded-lg p-4 text-lg min-h-[48px] border-2 border-gray-700 focus:border-blue-400 focus:ring-2 focus:ring-blue-900 transition-all duration-200 shadow-sm bg-gray-900 text-gray-100 placeholder-gray-400'
 						style={{ minWidth: '0', maxWidth: '350px' }}
 						placeholder={state === 'idle' ? 'Type your message...' : '...'}
 						value={message}
@@ -272,7 +279,7 @@ const ChatBot = ({ setIsSpeaking }) => {
 						disabled={state !== 'idle'}
 					/>
 					<button
-						className='bg-blue-600 hover:bg-blue-700 text-white text-base font-bold py-3 px-7 rounded-lg shadow transition-all duration-200 disabled:bg-gray-400 disabled:cursor-not-allowed'
+						className='bg-blue-700 hover:bg-blue-800 text-white text-base font-bold py-3 px-7 rounded-lg shadow transition-all duration-200 disabled:bg-gray-700 disabled:cursor-not-allowed'
 						disabled={message && state === 'idle' ? false : true}
 						onClick={async () => {
 							SpeechRecognition.stopListening();
