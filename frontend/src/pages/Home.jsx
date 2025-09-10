@@ -61,8 +61,8 @@ const Home = () => {
 		}
 		: {
 			position: 'absolute',
-			top: '50%',
-			right: '5vw', // Start: right edge
+			top: '48%',
+			right: '10vw', // Start: right edge
 			transform: 'translateY(-50%)',
 			width: '500px',
 			height: '600px',
@@ -89,7 +89,7 @@ const Home = () => {
 
 	// Style for right column (now just a spacer)
 	const rightColumnStyle = {
-		flex: 1.2,
+		flex: 1.7,
 		height: '700px',
 		maxWidth: '700px',
 		background: 'rgba(255,255,255,0.0)',
@@ -122,7 +122,7 @@ const Home = () => {
 			{/* Main content container, layered above Bot */}
 			<div style={mainContainerStyle}>
 				{/* Left column: slideshow + text */}
-				<div className="flex flex-col justify-between gap-8" style={{ flex: 1, height: '700px', maxWidth: '600px' }}>
+				<div className="flex flex-col justify-between gap-8" style={{ flex: 1.2, height: '700px', maxWidth: '1000px', transform: 'scale(0.85)', marginLeft: '0vw', marginRight: '-13vw' }}>
 					{/* Slideshow container */}
 					<div className="bg-white/80 rounded-3xl shadow-xl flex items-center justify-center" style={{ height: '320px', width: '100%' }}>
 						<CarouselComp />
