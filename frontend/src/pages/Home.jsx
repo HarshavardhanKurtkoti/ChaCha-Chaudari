@@ -35,9 +35,8 @@ const Home = () => {
 
 	// Redesign: main container is a flex row, left column is flex col (slideshow + text), right is 3D model
 	const mainContainerStyle = {
-		minHeight: showChat ? '700px' : '600px',
-		minWidth: showChat ? '1800px' : '1200px',
-		transition: 'min-width 0.3s, min-height 0.3s',
+		minHeight: '600px',
+		minWidth: '1200px',
 		display: 'flex',
 		flexDirection: 'row',
 		alignItems: 'center',
@@ -77,20 +76,24 @@ const Home = () => {
 					<div className="bg-white/80 rounded-3xl shadow-xl flex items-center justify-center" style={{ flex: 1.2, height: '700px', maxWidth: '700px' }}>
 						<Bot />
 					</div>
-					{/* Chat side-by-side if open */}
-					{showChat && (
-						<div className="bg-white/80 rounded-3xl shadow-xl flex flex-col items-center justify-center" style={{ flex: 2, height: '700px', minWidth: '400px' }}>
-							<ChatBot />
-						</div>
-					)}
+					   {/* Chat side-by-side removed. Only popup modal remains. */}
 				</div>
 
 				{/* Chat popup modal */}
 				{showChat && (
-					<div className="fixed inset-0 z-30 flex items-center justify-center bg-black bg-opacity-40">
-						<div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl h-[80vh] flex flex-col items-center justify-center p-6">
+					<div
+						className="fixed inset-0 z-40 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm"
+						onClick={e => {
+							// Only close if clicking the backdrop, not the modal or its children
+							if (e.target === e.currentTarget) setShowChat(false);
+						}}
+					>
+						<div
+							className="relative bg-gradient-to-br from-white via-blue-50 to-yellow-50 rounded-3xl shadow-2xl w-full max-w-4xl h-[80vh] flex flex-col items-center justify-center p-10 border border-blue-200"
+						>
 							<button
-								className="absolute top-4 right-4 text-gray-500 hover:text-gray-800 text-2xl font-bold"
+								className="absolute top-6 right-6 text-3xl font-bold text-gray-400 hover:text-blue-600 transition-all duration-200"
+								style={{ background: 'transparent', border: 'none', zIndex: 10 }}
 								onClick={() => setShowChat(false)}
 								aria-label="Close chat"
 							>

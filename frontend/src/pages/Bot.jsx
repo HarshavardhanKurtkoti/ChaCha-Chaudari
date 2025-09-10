@@ -37,11 +37,10 @@ const Bot = () => {
 			<section className="flex flex-col md:flex-row items-end gap-4 px-3 py-4">
 				{/* 3D Model Container with animation */}
 				<div className="flex flex-col items-center md:items-start w-full">
-					<div
-						className={`transition-transform duration-700 ease-in-out ${isOpen ? 'translate-x-0' : 'translate-x-0'} relative`}
-						style={{ width: '500px', height: '600px', maxWidth: '500px', margin: '0 auto', cursor: 'pointer', borderRadius: '24px', overflow: 'hidden', boxShadow: '0 8px 32px rgba(0,0,0,0.15)' }}
-						onClick={handleButton}
-					>
+					   <div
+						   className={`transition-transform duration-700 ease-in-out ${isOpen ? 'translate-x-0' : 'translate-x-0'} relative`}
+						   style={{ width: '500px', height: '600px', maxWidth: '500px', margin: '0 auto', borderRadius: '24px', overflow: 'hidden', boxShadow: '0 8px 32px rgba(0,0,0,0.15)' }}
+					   >
 						<Canvas camera={{ position: [0, 2, 8], fov: 40 }} style={{ width: '100%', height: '100%' }}>
 							<ambientLight intensity={1} />
 							<directionalLight position={[10, 10, 10]} intensity={1.2} />
@@ -53,14 +52,7 @@ const Bot = () => {
 					</div>
 				</div>
 				{/* Chat box with fade-in animation only */}
-				<div
-					className={`flex-1 transition-opacity duration-700 ease-in-out ${isOpen ? 'opacity-100 z-10' : 'opacity-0 z-0'} relative`}
-					style={{ maxWidth: '800px', minHeight: '600px', margin: '0 auto', height: '480px', boxShadow: '0 8px 32px rgba(0,0,0,0.15)', borderRadius: '24px' }}
-				>
-					{isOpen && (
-						<ChatBot setIsSpeaking={setIsSpeaking} />
-					)}
-				</div>
+				   {/* Chat box removed from Bot.jsx. Only accessible from Home.jsx top right button. */}
 			</section>
 		</>
 	);

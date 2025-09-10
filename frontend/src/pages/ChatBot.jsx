@@ -182,9 +182,9 @@ const ChatBot = ({ setIsSpeaking }) => {
 	};
 
 	return (
-		<main className='bg-white bg-opacity-60 backdrop-blur-2xl md:rounded-lg md:shadow-md p-4 pt-1 pb-2  w-full h-full flex flex-col'>
+	<main className='bg-white bg-opacity-60 backdrop-blur-2xl md:rounded-lg md:shadow-md p-6 pt-2 pb-4 w-full h-full flex flex-col'>
 			<h1 className='text-lg text-gray-800  '>Welcome to NMCG - <span className='underline underline-offset-2 text-blue-400'> Chacha Chaudhary</span></h1>
-			<section className='chat-box border-t-4 border-stone-300 pt-[0.15rem]  overflow-y-auto flex-grow  pb-2 h-56 '>
+		<section className='chat-box border-t-4 border-stone-300 pt-2 overflow-y-auto flex-grow pb-4 h-[55vh]'>
 				<div className='flex flex-col space-y-4'>
 					{chatHistory.length === 0 ? (
 						<Fragment>
@@ -215,45 +215,43 @@ const ChatBot = ({ setIsSpeaking }) => {
 
 				<div ref={bottomRef} />
 			</section>
-			 <div className='chat-box-input-field flex items-center justify-center rounded-xl p-2 bg-gradient-to-r from-blue-50 via-white to-yellow-50 shadow-md border border-gray-200 mt-2'>
-				<button onClick={handleaudio} className='text-3xl mr-1'>
-					{audio ? <HiOutlineSpeakerWave /> : <HiOutlineSpeakerXMark />}
-				</button>
-				<div className='w-32'><SelectLang setLang={setLang} /></div>
-				<div className='flex flex-col items-center'>
-					<div className='flex items-center'>
+			 <div className='chat-box-input-field flex flex-row items-end justify-between gap-4 rounded-xl p-4 bg-gradient-to-r from-blue-50 via-white to-yellow-50 shadow-md border border-gray-200 mt-4'>
+				<div className='flex flex-row items-center gap-3'>
+					<button onClick={handleaudio} className='text-3xl'>
+						{audio ? <HiOutlineSpeakerWave /> : <HiOutlineSpeakerXMark />}
+					</button>
+					<div className='w-32'><SelectLang setLang={setLang} /></div>
+					<button
+						onClick={handleListen}
+						className={listening ? `bg-blue-500 text-white py-2 px-3 rounded-full animate-pulse border-4 border-blue-700` : `bg-gray-200 py-2 px-3 rounded-full border-2 border-gray-400`}
+						disabled={listening}
+						title={listening ? 'Listening...' : 'Start voice input'}
+					>
+						<BsMic className='text-2xl' />
+					</button>
+					{listening && (
+						<span className='ml-2 text-blue-700 font-bold animate-pulse'>Listening...</span>
+					)}
+					{listening && (
+						<button
+							onClick={handleStop}
+							className='bg-red-500 text-white py-2 px-3 rounded-full font-bold border-2 border-red-700 ml-2'
+						>
+							Stop
+						</button>
+					)}
+					{!listening && (
 						<button
 							onClick={handleListen}
-							className={listening ? `bg-blue-500 text-white mx-1 py-1 rounded-full animate-pulse border-4 border-blue-700` : `bg-gray-200 mx-1 py-1 rounded-full border-2 border-gray-400`}
-							disabled={listening}
-							title={listening ? 'Listening...' : 'Start voice input'}
+							className='bg-yellow-400 text-black py-2 px-3 rounded-full font-bold border-2 border-yellow-700 ml-2'
+							title='Retry voice input'
 						>
-							<BsMic className='text-3xl' />
+							Retry
 						</button>
-						{listening && (
-							<span className='ml-2 text-blue-700 font-bold animate-pulse'>Listening...</span>
-						)}
-						{listening && (
-							<button
-								onClick={handleStop}
-								className='bg-red-500 text-white mx-1 py-1 rounded-full px-3 font-bold border-2 border-red-700'
-							>
-								Stop
-							</button>
-						)}
-						{!listening && (
-							<button
-								onClick={handleListen}
-								className='bg-yellow-400 text-black mx-1 py-1 rounded-full px-3 font-bold border-2 border-yellow-700'
-								title='Retry voice input'
-							>
-								Retry
-							</button>
-						)}
-					</div>
+					)}
 					{/* Mic loudness bar */}
 					{listening && (
-						<div className='w-40 h-3 bg-gray-200 rounded mt-2 relative'>
+						<div className='w-32 h-3 bg-gray-200 rounded mt-2 relative'>
 							<div
 								className='h-3 rounded bg-green-500 transition-all duration-100'
 								style={{ width: `${Math.min(100, micLevel)}%` }}
@@ -261,46 +259,48 @@ const ChatBot = ({ setIsSpeaking }) => {
 						</div>
 					)}
 				</div>
-				 <input
-				 type='text'
-				 ref={inputRef}
-				 className='w-full rounded-lg p-4 text-lg min-h-[48px] border-2 border-blue-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition-all duration-200 shadow-sm bg-white placeholder-gray-400'
-				 style={{ minWidth: '300px', maxWidth: '600px' }}
-				 placeholder={state === 'idle' ? 'Type your message...' : '...'}
-				 value={message}
-				 onChange={handleInputChange}
-				 onBlur={handleInputBlur}
-				 disabled={state !== 'idle'}
-				 />
-				 <button
-				 className='bg-blue-600 hover:bg-blue-700 text-white text-base font-bold py-2 px-5 rounded-lg shadow transition-all duration-200 disabled:bg-gray-400 disabled:cursor-not-allowed ml-2'
-				 disabled={message && state === 'idle' ? false : true}
-				 onClick={async () => {
-						SpeechRecognition.stopListening();
-						resetTranscript();
-						setIsTyping(false);
-						if (message) {
-							addMessage('user', message);
-							setState('waiting');
-							SpeechRecognition.abortListening();
-							let resp = await getResponse({ prompt: message }, '/chat');
-							setMessage('');
+				<div className='flex flex-row flex-wrap items-center gap-3 flex-grow' style={{ maxWidth: '600px' }}>
+					<input
+						type='text'
+						ref={inputRef}
+						className='flex-grow rounded-lg p-4 text-lg min-h-[48px] border-2 border-blue-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition-all duration-200 shadow-sm bg-white placeholder-gray-400'
+						style={{ minWidth: '0', maxWidth: '350px' }}
+						placeholder={state === 'idle' ? 'Type your message...' : '...'}
+						value={message}
+						onChange={handleInputChange}
+						onBlur={handleInputBlur}
+						disabled={state !== 'idle'}
+					/>
+					<button
+						className='bg-blue-600 hover:bg-blue-700 text-white text-base font-bold py-3 px-7 rounded-lg shadow transition-all duration-200 disabled:bg-gray-400 disabled:cursor-not-allowed'
+						disabled={message && state === 'idle' ? false : true}
+						onClick={async () => {
+							SpeechRecognition.stopListening();
 							resetTranscript();
-							setState('idle');
-							if (resp && resp.data && resp.data.result) {
-								addMessage('assistant', resp.data.result);
-								if (audio) {
-									playTTS(resp.data.result);
-									if (setIsSpeaking) setIsSpeaking(true);
-								} else {
-									if (setIsSpeaking) setIsSpeaking(false);
+							setIsTyping(false);
+							if (message) {
+								addMessage('user', message);
+								setState('waiting');
+								SpeechRecognition.abortListening();
+								let resp = await getResponse({ prompt: message }, '/chat');
+								setMessage('');
+								resetTranscript();
+								setState('idle');
+								if (resp && resp.data && resp.data.result) {
+									addMessage('assistant', resp.data.result);
+									if (audio) {
+										playTTS(resp.data.result);
+										if (setIsSpeaking) setIsSpeaking(true);
+									} else {
+										if (setIsSpeaking) setIsSpeaking(false);
+									}
 								}
 							}
-						}
-					}}
-				>
-					Send
-				</button>
+						}}
+					>
+						Send
+					</button>
+				</div>
 			</div>
 		</main>
 	);
