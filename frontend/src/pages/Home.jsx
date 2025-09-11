@@ -49,14 +49,14 @@ const Home = () => {
 	const botModelStyle = modelTransition
 		? {
 			position: 'absolute',
-			top: '52%',
+			top: '48%',
 			right: '58vw', // Destination: just left of right container
 			transform: 'translateY(-50%)',
 			width: '500px',
 			height: '600px',
 			maxWidth: '500px',
 			pointerEvents: 'none',
-			transition: 'all 0.7s cubic-bezier(0.77,0,0.175,1)',
+			transition: 'all 0.7s linear',
 			zIndex: 20, // Make model above containers
 		}
 		: {
@@ -173,16 +173,7 @@ const Home = () => {
 								</div>
 							</div>
 							{/* Controls below character, with extra bottom padding */}
-							<div className="w-full flex flex-col items-center gap-4 pb-4">
-								<div className="flex items-center gap-2 bg-gray-900 rounded-xl px-4 py-2 shadow">
-									<span className="material-icons text-gray-400">volume_up</span>
-									<select className="bg-gray-900 text-white rounded px-2 py-1">
-										<option>English</option>
-										<option>Hindi</option>
-									</select>
-									<button className="bg-blue-600 text-white px-2 py-1 rounded shadow">🎤</button>
-								</div>
-							</div>
+							
 						</div>
 						{/* Right: Chat area */}
 						<div className="flex flex-col flex-grow justify-end p-8 w-2/3 bg-gray-900 rounded-r-3xl" style={{ minHeight: '100%' }}>

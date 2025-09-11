@@ -15,6 +15,8 @@
     "@mantine/core": "^6.0.20",
     "@mantine/hooks": "^6.0.20",
     "@mantine/modals": "^6.0.20",
+    "@react-three/drei": "^9.56.7",
+    "@react-three/fiber": "^8.13.2",
     "axios": "^1.5.0",
     "bhashini-translation": "^1.0.4",
     "embla-carousel-react": "^7.0.0",
@@ -29,9 +31,7 @@
     "react-speech-recognition": "^3.10.0",
     "regenerator-runtime": "^0.14.0",
     "remark-gfm": "^3.0.1",
-    "three": "^0.152.2",
-    "@react-three/fiber": "^8.13.2",
-    "@react-three/drei": "^9.56.7"
+    "three": "^0.152.2"
   },
   "devDependencies": {
     "@types/react": "^18.2.15",
