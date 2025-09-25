@@ -1,0 +1,131 @@
+% Compile with: pdflatex -> bibtex -> pdflatex -> pdflatex
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+
+% --- Packages ---
+\usepackage[T1]{fontenc}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{listings}
+\usepackage{hyperref}
+\usepackage{xcolor}
+
+\hypersetup{colorlinks=true, urlcolor=blue, linkcolor=blue, citecolor=blue}
+
+\begin{document}
+
+	itle{SmartGanga Mascot: An AI/ML and RAG-Powered Robot and Digital Avatar for River--People Connect in Namami Gange}
+
+\author{\IEEEauthorblockN{First Author, Second Author, ...}
+\IEEEauthorblockA{Department / Institute\\ City, Country\\ Email: first.author@example.com}}
+
+\maketitle
+
+\begin{abstract}
+We present an on-device, retrieval-augmented generation (RAG) chatbot and voice assistant designed as the digital avatar of ``Chacha Chaudhary,'' the official mascot of the Namami Gange Programme. The system couples a local Llama-2 7B chat model with a lightweight document retrieval pipeline built over FAISS. A React-based web front-end offers multimodal interaction, including text, speech-to-text (STT), and text-to-speech (TTS). The backend exposes REST APIs using Flask and integrates user authentication and chat persistence via MongoDB. We detail the architecture, implementation choices, optimizations for edge deployment (quantization-ready model artifacts, GPU containers), and evaluate the system using response relevance, latency, and user study metrics in a museum-style kiosk scenario. The approach demonstrates a practical, privacy-preserving RAG pipeline for domain outreach.
+\end{abstract}
+
+\begin{IEEEkeywords}
+RAG, LLM, Llama-2, FAISS, Flask, React, Edge AI, Speech Synthesis, MongoDB, Human-Computer Interaction
+\end{IEEEkeywords}
+
+\section{Introduction}
+Public engagement on riverine ecology requires accurate, approachable, and accessible interfaces. We target a kiosk/web avatar scenario for Namami Gange, adopting a locally hosted LLM to preserve privacy and control latency. Our contributions: (i) an end-to-end RAG chatbot centered on Llama-2 7B chat; (ii) a pragmatic retrieval pipeline over FAISS with PDF ingestion; (iii) a web UI with TTS/STT and JWT-authenticated, persistent chats; and (iv) reproducible GPU deployment through CUDA-enabled Docker.
+
+\section{Related Work}
+RAG combines retrieval with generation to ground LLM responses in external knowledge \cite{rag_lewis2020}. Local and edge-hosted LLMs reduce cloud dependency while improving privacy. Conversational agents for education and museums demonstrate the value of domain-grounded dialogue in public spaces.
+
+\section{System Architecture}
+Figure~\ref{fig:arch} overviews the system. The browser (React, Mantine, Tailwind) communicates with a Flask API. The backend hosts a Llama-2 7B chat model through \texttt{transformers}, a FAISS index built from domain PDFs, and MongoDB for users/chats.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.95\linewidth]{fig-architecture-placeholder}
+  \caption{High-level architecture: React frontend \textleftrightarrow{} Flask API \textleftrightarrow{} Llama-2 + FAISS + MongoDB. Replace with your diagram.}
+  \label{fig:arch}
+\end{figure}
+
+\subsection{Frontend}
+The frontend is built with React 18 and Vite, using Mantine UI for components and React Router for navigation. Speech is handled via browser APIs (e.g., \texttt{react-speech-recognition}). Text-to-speech audio is obtained from the backend \texttt{/tts} endpoint and played in the browser. Authentication follows a modal-based login/signup flow; tokens are stored in \texttt{localStorage}.
+
+\subsection{Backend}
+The backend uses Flask 3.x with CORS configured to the frontend origin. Authentication is implemented with JWT (PyJWT) and password hashing from Werkzeug. Chat persistence uses MongoDB collections for \texttt{users} and \texttt{chats} with proper indexes. The RAG pipeline extracts text from PDF documents (\texttt{pdfplumber}), chunks it, embeds chunks, and indexes them in FAISS for nearest-neighbor retrieval. The Llama-2 7B chat model is loaded from local weights and executed on GPU when available. TTS is provided by \texttt{edge-tts}, generating an \texttt{mp3} per request and returning it to the client.
+
+\subsection{Data Layer}
+The repository includes an example PDF (\texttt{AnnualReport2023.pdf}). Chunks are indexed in FAISS (IndexFlatL2). Hash-based embeddings are used as a lightweight placeholder to avoid heavy dependencies during development; they can be replaced with \texttt{sentence-transformers} in production.
+
+\subsection{Deployment}
+We provide an NVIDIA CUDA-enabled Docker image based on \texttt{nvcr.io/nvidia/pytorch}. Environment flags (e.g., \texttt{TRANSFORMERS\_NO\_AUDIO}) avoid conflicting optional dependencies. The container exposes port 5000 and mounts volumes for model weights and data; GPU passthrough is enabled via \texttt{--gpus all}.
+
+\section{Methodology}
+\subsection{RAG Pipeline}
+Given a user query $q$, we retrieve top-$k$ chunks $C_k$ using FAISS and construct a prompt $P=[\text{instruction}; C_k; q]$ to generate the answer $a$. Retrieval distance $d(\cdot)$ uses L2 over embeddings. We cap prompt/context length to prevent excessive latency and memory usage.
+
+\noindent\textbf{Pseudocode:}
+\begin{lstlisting}[language=Python,basicstyle=\ttfamily\small]
+# Ingestion (offline)
+text = pdfplumber.open("AnnualReport2023.pdf").extract_text()
+chunks = chunk(text, size=500)
+emb = embed(chunks)  # hash or sentence-transformers
+faiss_index = faiss.IndexFlatL2(emb.dim).add(emb)
+
+# Query time
+def answer(q):
+    I = faiss_index.search(embed([q]), k=3)
+    Ck = [chunks[i] for i in I[0]]
+    prompt = assemble_prompt(Ck, q)
+    out = llm.generate(prompt, max_new_tokens=128,
+                       temperature=0.2)
+    return postprocess(out)
+\end{lstlisting}
+
+\subsection{Model Inference}
+We use \texttt{AutoTokenizer} and \texttt{AutoModelForCausalLM} with \texttt{device\_map=auto}. Quantized artifacts (e.g., GPTQ/GGUF) are compatible if substituted. Generation uses nucleus sampling with a low temperature (0.2) to reduce hallucinations.
+
+\section{Evaluation}
+We consider: (1) retrieval hit-rate@k over a curated Q/A set; (2) end-to-end latency (p50/p90) on a target GPU; (3) memory footprint; and (4) user satisfaction via Likert-scale surveys in kiosk pilots. An ablation compares hash vs. sentence-transformers embeddings and with/without RAG context.
+
+\section{Results}
+Provide quantitative tables and qualitative examples. Include screenshots of the UI, and sample dialogues illustrating correct grounding and typical failure modes.
+
+\section{Discussion}
+We discuss trade-offs of local hosting (privacy, control) vs. cloud APIs (scalability), ethical and accessibility aspects (multilingual support with Bhashini, voice assistance), and lessons learned about dependency management in GPU containers.
+
+\section{Conclusion and Future Work}
+We delivered a privacy-preserving, locally hosted RAG chatbot suitable for museum and web scenarios. Future work includes stronger embeddings and reranking, streaming token UIs, improved multilingual TTS/STT, and automated ingestion of new documents.
+
+\section*{Acknowledgments}
+We acknowledge the Namami Gange context and collaborating institutions.
+
+\section*{Tools, Frameworks, and Versions}
+Table~\ref{tab:tools} summarizes major components (derived from the repository).
+
+\begin{table}[h]
+  \centering
+  \caption{Key tools and frameworks}
+  \label{tab:tools}
+  \begin{tabular}{ll}
+    \toprule
+    Component & Version / Notes \\
+    \midrule
+    PyTorch & 2.5.1 (CUDA-enabled) \\
+    Transformers & 4.56.1 \\
+    Flask & 3.1.2 \\
+    FAISS & 1.12.0 (CPU) \\
+    pdfplumber & 0.11.7 \\
+    edge-tts & 7.2.3 \\
+    MongoDB (pymongo) & 4.9.2 \\
+    React & 18.2 \\
+    Vite & 4.4 \\
+    Mantine UI & 6.0 \\
+    TailwindCSS & 3.3 \\
+    Docker base & NVIDIA PyTorch 23.06-py3 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+\end{document}
