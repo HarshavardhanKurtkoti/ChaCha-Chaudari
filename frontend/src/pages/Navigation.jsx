@@ -34,10 +34,15 @@ export default function Navigation() {
             if (latitude && longitude) {
                 // Calculate distance to Ganga Aarti
                 setDistance(haversineDistance(latitude, longitude, GANGA_AARTI_LAT, GANGA_AARTI_LON));
+                const userToken = localStorage.getItem('userToken');
                 axios
                     .post('http://localhost:1212/updateLocation', {
                         lat: latitude,
                         lon: longitude,
+                    }, {
+                        headers: {
+                            'Authorization': userToken || ''
+                        }
                     })
                     .then((res) => {
                         setResponse(res.data);

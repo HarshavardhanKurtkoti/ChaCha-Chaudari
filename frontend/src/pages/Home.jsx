@@ -6,31 +6,37 @@ import ChatBot from './ChatBot';
 import CarouselComp from '../components/CarouselComp';
 
 const Home = () => {
-	 useEffect(() => {
-		 // Always play greeting and activate chatbot on mount
-		 const audio = new Audio('/assets/chacha-cahaudhary/Greeting.wav');
-		 audio.play().then(() => {
-			 setTimeout(() => {
-				 window.dispatchEvent(new CustomEvent('activate-chatbot-voice', { detail: { message: 'hello' } }));
-			 }, 2000);
-		 }).catch(() => {
-			 // If autoplay is blocked, wait for user gesture
-			 const gestureHandler = () => {
-				 audio.play();
-				 setTimeout(() => {
-					 window.dispatchEvent(new CustomEvent('activate-chatbot-voice', { detail: { message: 'hello' } }));
-				 }, 2000);
-				 window.removeEventListener('click', gestureHandler);
-				 window.removeEventListener('keydown', gestureHandler);
-			 };
-			 window.addEventListener('click', gestureHandler);
-			 window.addEventListener('keydown', gestureHandler);
-		 });
-		 return () => {
-			 audio.pause();
-			 audio.currentTime = 0;
-		 };
-	 }, []);
+	   useEffect(() => {
+		   // Always play greeting and activate chatbot on mount
+		   const audio = new Audio('/assets/chacha-cahaudhary/Greeting.wav');
+		   let played = false;
+		   const playGreeting = () => {
+			   if (!played) {
+				   played = true;
+				   audio.play();
+				   setTimeout(() => {
+					   window.dispatchEvent(new CustomEvent('activate-chatbot-voice', { detail: { message: 'hello' } }));
+				   }, 2000);
+				   window.removeEventListener('click', playGreeting);
+				   window.removeEventListener('keydown', playGreeting);
+			   }
+		   };
+		   audio.play().then(() => {
+			   played = true;
+			   setTimeout(() => {
+				   window.dispatchEvent(new CustomEvent('activate-chatbot-voice', { detail: { message: 'hello' } }));
+			   }, 2000);
+		   }).catch(() => {
+			   window.addEventListener('click', playGreeting);
+			   window.addEventListener('keydown', playGreeting);
+		   });
+		   return () => {
+			   audio.pause();
+			   audio.currentTime = 0;
+			   window.removeEventListener('click', playGreeting);
+			   window.removeEventListener('keydown', playGreeting);
+		   };
+	   }, []);
 	 const [showChat, setShowChat] = useState(false);
 	 const [modelTransition, setModelTransition] = useState(false);
 
@@ -173,7 +179,16 @@ const Home = () => {
 								</div>
 							</div>
 							{/* Controls below character, with extra bottom padding */}
-							
+							<div className="w-full flex flex-col items-center gap-4 pb-4">
+								<div className="flex items-center gap-2 bg-gray-900 rounded-xl px-4 py-2 shadow">
+									<span className="material-icons text-gray-400">volume_up</span>
+									<select className="bg-gray-900 text-white rounded px-2 py-1">
+										<option>English</option>
+										<option>Hindi</option>
+									</select>
+									<button className="bg-blue-600 text-white px-2 py-1 rounded shadow">🎤</button>
+								</div>
+							</div>
 						</div>
 						{/* Right: Chat area */}
 						<div className="flex flex-col flex-grow justify-end p-8 w-2/3 bg-gray-900 rounded-r-3xl" style={{ minHeight: '100%' }}>

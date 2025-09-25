@@ -1,0 +1,28 @@
+
+# Ignore model weights, datasets, cache, and other large files
+Llama-2-7b-chat-hf/
+backend/Data/
+backend/Llama-2-7b-chat-hf/
+backend/__pycache__/
+*.pyc
+*.log
+*.tmp
+*.pdf
+*.html
+*.md
+ChaCha.blend
+ChaCha.blend1
+# Ignore Hugging Face cache
+~/.cache/
+# Ignore node_modules and build artifacts
+frontend/node_modules/
+frontend/dist/
+# Ignore frontend assets and build folders
+frontend/public/assets/
+frontend/src/assets/
+frontend/src/components/
+frontend/src/context/
+frontend/src/data/
+frontend/src/pages/
+# Ignore .env files
+.env

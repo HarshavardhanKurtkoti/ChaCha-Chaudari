@@ -17,7 +17,7 @@ const ChatBot = ({ setIsSpeaking }) => {
 				setAudio(true); // activate voice mode
 				addMessage('user', 'hello');
 				setState('waiting');
-				getResponse({ prompt: 'hello' }, '/chat').then(resp => {
+				getResponse({ prompt: 'hello' }, '/llama-chat').then(resp => {
 					setState('idle');
 					if (resp && resp.data && resp.data.result) {
 						addMessage('assistant', resp.data.result);
@@ -38,9 +38,13 @@ const ChatBot = ({ setIsSpeaking }) => {
 	// Play Gemini TTS audio for assistant responses
 	async function playTTS(text) {
 		try {
+			const userToken = localStorage.getItem('userToken');
 			const response = await fetch('http://localhost:5000/tts', {
 				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
+				headers: {
+					'Content-Type': 'application/json',
+					'Authorization': userToken || ''
+				},
 				body: JSON.stringify({ text }),
 			});
 			if (!response.ok) return;
@@ -102,11 +106,16 @@ const ChatBot = ({ setIsSpeaking }) => {
 		}
 	});
 
-	let endpoint = '/chat';
+	let endpoint = 'http://localhost:5000/llama-chat';
 
 	const getResponse = async (userdata, endpoint) => {
 		try {
-			const response = await api.post(endpoint, userdata);
+			const userToken = localStorage.getItem('userToken');
+			const response = await api.post(endpoint, userdata, {
+				headers: {
+					'Authorization': userToken || ''
+				}
+			});
 			console.log('response', response);
 			setState('thinking');
 			return response;
@@ -289,7 +298,7 @@ const ChatBot = ({ setIsSpeaking }) => {
 								addMessage('user', message);
 								setState('waiting');
 								SpeechRecognition.abortListening();
-								let resp = await getResponse({ prompt: message }, '/chat');
+								let resp = await getResponse({ prompt: message }, '/llama-chat');
 								setMessage('');
 								resetTranscript();
 								setState('idle');

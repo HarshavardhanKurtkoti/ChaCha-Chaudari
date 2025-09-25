@@ -4,7 +4,7 @@
 	},
 	"include": [
 		"src"
-, "src/assets/images"	],
+, "public/assets/images"	],
 	"exclude": [
 		"node_modules",
 		"build",

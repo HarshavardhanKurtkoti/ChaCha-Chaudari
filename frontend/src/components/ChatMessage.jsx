@@ -1,6 +1,7 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { user, ChachaChaudhary } from '../assets/images';
+const user = '/assets/images/user.png';
+const ChachaChaudhary = '/assets/images/chacha-chaudhary.png';
 
 // This lets us style any markdown tables that are rendered
 const CustomTable = ({ children, ...props }) => {

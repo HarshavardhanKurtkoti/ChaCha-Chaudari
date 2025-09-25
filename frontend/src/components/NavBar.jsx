@@ -31,6 +31,15 @@ const NavBar = () => {
 							onClick={handleLogoClick}
 						/>
 					</div>
+                    {/* Avatar/Profile Icon */}
+                    <div className="flex items-center ml-auto">
+                        <img
+                            src="https://ui-avatars.com/api/?name=User"
+                            alt="Profile"
+                            className="w-12 h-12 rounded-full border-2 border-blue-500 shadow-md cursor-pointer object-cover"
+                            style={{ marginRight: '1rem' }}
+                        />
+                    </div>
 									<div className="hidden md:flex space-x-6">
 										{links.map((link) => (
 											<Link
