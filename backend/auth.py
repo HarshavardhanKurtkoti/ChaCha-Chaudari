@@ -16,7 +16,10 @@ auth_bp = Blueprint('auth', __name__, url_prefix='/auth')
 
 SECRET_KEY = os.getenv('SECRET_KEY')
 if not SECRET_KEY:
-    raise RuntimeError('SECRET_KEY env var is required')
+    # Generate ephemeral secret key for non-production boot; tokens will invalidate across restarts
+    import secrets, logging
+    SECRET_KEY = secrets.token_hex(32)
+    logging.getLogger(__name__).warning('SECRET_KEY not set; using ephemeral key for this session (not for production)')
 
 ADMIN_CODE = os.getenv('ADMIN_CODE', 'letmein-admin')
 TOKEN_EXP_HOURS = int(os.getenv('TOKEN_EXP_HOURS', '24'))

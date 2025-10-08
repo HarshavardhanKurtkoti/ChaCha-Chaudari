@@ -10,12 +10,16 @@ Limitations:
 - Adequate only to keep the rest of the pipeline functional for now.
 """
 
+import os
 import pdfplumber
 import warnings
 import sys
 import hashlib
 import numpy as np
 import faiss
+
+# Embedding dimensionality used throughout this module
+EMBED_DIM = 384
 
 
 def extract_pdf_text(pdf_path: str) -> str:
@@ -33,6 +37,9 @@ def extract_pdf_text(pdf_path: str) -> str:
     sys.stderr = PDFWarningFilter()
     text = []
     try:
+        if not os.path.isfile(pdf_path):
+            # File missing; return empty text to keep pipeline alive
+            return ""
         with pdfplumber.open(pdf_path) as pdf:
             for page in pdf.pages:
                 page_text = page.extract_text() or ""
@@ -47,7 +54,7 @@ def chunk_text(text: str, chunk_size: int = 500):
     return [" ".join(words[i : i + chunk_size]) for i in range(0, len(words), chunk_size)]
 
 
-def hash_embed(text: str, dim: int = 384) -> np.ndarray:
+def hash_embed(text: str, dim: int = EMBED_DIM) -> np.ndarray:
     """Create a deterministic pseudo-embedding via hashing tokens.
 
     This is NOT semantic; it's just enough to keep a FAISS demo running
@@ -66,17 +73,47 @@ def hash_embed(text: str, dim: int = 384) -> np.ndarray:
     return vec
 
 
-def build_index(chunks_list):
-    emb_list = [hash_embed(c) for c in chunks_list]
+def build_index(chunks_list, dim: int = EMBED_DIM):
+    if not chunks_list:
+        # Create an empty index with correct dimensionality
+        index_inst = faiss.IndexFlatL2(dim)
+        empty_mat = np.zeros((0, dim), dtype=np.float32)
+        return index_inst, empty_mat
+    emb_list = [hash_embed(c, dim=dim) for c in chunks_list]
     mat = np.vstack(emb_list)
     index_inst = faiss.IndexFlatL2(mat.shape[1])
     index_inst.add(mat)
     return index_inst, mat
 
 
-pdf_text = extract_pdf_text("Data/AnnualReport2023.pdf")
+# Resolve PDF path relative to this file to avoid CWD issues
+_this_dir = os.path.dirname(__file__)
+_pdf_path = os.path.join(_this_dir, "Data", "AnnualReport2023.pdf")
+pdf_text = extract_pdf_text(_pdf_path)
 chunks = chunk_text(pdf_text)
 index, embeddings = build_index(chunks)
+
+class SimpleEmbedder:
+    """Minimal encoder compatible with app.py expectations.
+
+    .encode(texts: List[str]) -> np.ndarray of shape (N, D)
+    Uses the same hash-based embedding to stay dependency-light.
+    """
+
+    def __init__(self, dim: int = EMBED_DIM):
+        self.dim = dim
+
+    def encode(self, texts):
+        if isinstance(texts, str):
+            texts = [texts]
+        if not texts:
+            return np.zeros((0, self.dim), dtype=np.float32)
+        vecs = [hash_embed(t, dim=self.dim) for t in texts]
+        return np.vstack(vecs)
+
+
+# Expose an embedder compatible with app.py: from rag_utils import embedder, index, chunks
+embedder = SimpleEmbedder()
 
 
 def query(text: str, top_k: int = 3):

@@ -1,9 +1,9 @@
 # Under Development 
 
-# Chacha Chaudhary: AI-Powered Mascot for Namami Gange
+# SmartGanga Mascot: AI/ML and Chatbot-Powered Robot and Digital Avatar for Namami Gange
 
 ## Project Overview
-Chacha Chaudhary has been declared the mascot of the Namami Gange Programme at the 37th Executive Committee meeting of the National Mission for Clean Ganga (NMCG). In collaboration with Diamond Toons, NMCG is developing and distributing comics, e-comics, and animated videos to foster behavioral change among children regarding the Ganga and other rivers.
+SmartGanga Mascot is an AI/ML and chatbot-powered robot and digital avatar inspired by the officially declared mascot of the Namami Gange Programme (Chacha Chaudhary). In collaboration with Diamond Toons, NMCG is developing and distributing comics, e-comics, and animated videos to foster behavioral change among children regarding the Ganga and other rivers.
 
 ## Problem Statement
 To further enhance interactivity, the project aims to create an AI, ML, and chatbot-powered interactive robot mascot (Chacha Chaudhary). This solution will strengthen the river-people connect component of Namami Gange by engaging school children, the general public, and all NMCG stakeholders, promoting awareness and information dissemination in a user-friendly and citizen-centric manner.

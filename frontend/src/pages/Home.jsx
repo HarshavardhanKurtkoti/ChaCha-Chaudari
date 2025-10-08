@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import Bot from './Bot';
 import ChatBot from './ChatBot';
 import CarouselComp from '../components/CarouselComp';
+import GreetingPopup from './Greeting';
 
 const Home = () => {
 	   useEffect(() => {
@@ -39,6 +40,7 @@ const Home = () => {
 	   }, []);
 	 const [showChat, setShowChat] = useState(false);
 	 const [modelTransition, setModelTransition] = useState(false);
+	 const [showGreeting, setShowGreeting] = useState(true);
 
 	// Full screen canvas for Bot, positioned with transition
 	const botCanvasStyle = {
@@ -180,14 +182,6 @@ const Home = () => {
 							</div>
 							{/* Controls below character, with extra bottom padding */}
 							<div className="w-full flex flex-col items-center gap-4 pb-4">
-								<div className="flex items-center gap-2 bg-gray-900 rounded-xl px-4 py-2 shadow">
-									<span className="material-icons text-gray-400">volume_up</span>
-									<select className="bg-gray-900 text-white rounded px-2 py-1">
-										<option>English</option>
-										<option>Hindi</option>
-									</select>
-									<button className="bg-blue-600 text-white px-2 py-1 rounded shadow">🎤</button>
-								</div>
 							</div>
 						</div>
 						{/* Right: Chat area */}
@@ -196,6 +190,11 @@ const Home = () => {
 						</div>
 					</div>
 				</div>
+			)}
+
+			{/* Greeting popup, shown on initial load */}
+			{showGreeting && (
+				<GreetingPopup onClose={() => setShowGreeting(false)} />
 			)}
 		</section>
 	);

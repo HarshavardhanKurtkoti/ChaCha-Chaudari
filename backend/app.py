@@ -11,19 +11,69 @@ Harsha / Buddy: this file is a cleaned-up, safer version of your draft.
 """
 
 import os
-os.environ.setdefault("TRANSFORMERS_NO_AUDIO", "1")
-os.environ.setdefault("TRANSFORMERS_NO_TORCHVISION", "1")
-os.environ.setdefault("NUMBA_DISABLE_JIT", "1")
+import sys
+import types
 import uuid
 import logging
+import warnings
 import struct
-import time
 from dotenv import dotenv_values
 from flask import Flask, request, send_file, jsonify
 from flask_cors import CORS
+import numpy as np
 
-# RAG utils (lightweight hash-based embeddings now)
-from rag_utils import index, chunks, hash_embed, query as rag_query
+# Prevent transformers optional stacks and Flask debug reloader
+os.environ.setdefault("TRANSFORMERS_NO_AUDIO", "1")
+os.environ.setdefault("TRANSFORMERS_NO_TORCHVISION", "1")
+os.environ.setdefault("NUMBA_DISABLE_JIT", "1")
+os.environ.setdefault("FLASK_ENV", "production")
+os.environ.setdefault("FLASK_DEBUG", "0")
+
+# Stub out librosa to avoid importing numba during transformers import path
+# We don't use audio features, but transformers imports audio_utils which tries to import librosa.
+if "librosa" not in sys.modules:
+    import importlib.machinery as _machinery
+    _librosa_mod = types.ModuleType("librosa")
+    # minimal attributes to satisfy transformers' availability checks
+    _librosa_mod.__version__ = "0.0"
+    _librosa_mod.__spec__ = _machinery.ModuleSpec(name="librosa", loader=None)
+    sys.modules["librosa"] = _librosa_mod
+
+# Stub soxr (optional audio resampler) and soundfile used by transformers.audio_utils
+if "soxr" not in sys.modules:
+    import importlib.machinery as _machinery
+    _soxr_mod = types.ModuleType("soxr")
+    _soxr_mod.__version__ = "0.0"
+    _soxr_mod.__spec__ = _machinery.ModuleSpec(name="soxr", loader=None)
+    sys.modules["soxr"] = _soxr_mod
+
+if "soundfile" not in sys.modules:
+    import importlib.machinery as _machinery
+    _sf_mod = types.ModuleType("soundfile")
+    _sf_mod.__version__ = "0.0"
+    _sf_mod.__spec__ = _machinery.ModuleSpec(name="soundfile", loader=None)
+    sys.modules["soundfile"] = _sf_mod
+
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Suppress pdfminer warnings
+logging.getLogger("pdfminer").setLevel(logging.ERROR)
+
+# Suppress noisy torchvision C-extension warning if torchvision gets imported indirectly
+warnings.filterwarnings(
+    "ignore",
+    message="Failed to load image Python extension*",
+    category=UserWarning,
+)
+
+# RAG utils assumed to be implemented elsewhere (embedder, index, chunks)
+try:
+    from rag_utils import embedder, index, chunks
+except Exception as e:
+    logger.error(f"Failed to import rag_utils components: {e}")
+    embedder, index, chunks = None, None, None
 
 # Transformers / Llama
 import torch
@@ -32,10 +82,6 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 # TTS
 import asyncio
 import edge_tts
-
-# Setup logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 # Load environment variables
 env_vars = dotenv_values('.env')
@@ -97,59 +143,22 @@ def convert_to_wav_headered(audio_data: bytes, bits_per_sample: int = 16, rate: 
     )
     return header + audio_data
 
-tokenizer = None  # will be loaded lazily
+# Load tokenizer + model (with bitsandbytes config if available)
+tokenizer = None
 llm = None
-_model_error = None
-_model_loading = False
-
-def load_model():
-    """Lazy load the model with 4-bit quantization if possible.
-    Avoids blocking container startup and lets /healthz respond earlier.
-    """
-    global tokenizer, llm, _model_error, _model_loading
-    if llm is not None and tokenizer is not None:
-        return True
-    if _model_loading:
-        return False  # another request is triggering load
-    _model_loading = True
-    t0 = time.time()
-    logger.info('Beginning lazy model load...')
-    try:
-        from transformers import BitsAndBytesConfig
-        bnb_config = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_compute_dtype=torch.float16,
-            bnb_4bit_quant_type='nf4',
-            bnb_4bit_use_double_quant=True,
-        )
-    except Exception:
-        bnb_config = None
-    try:
-        tokenizer = AutoTokenizer.from_pretrained(MODEL_REPO, use_fast=True, local_files_only=True)
-        load_kwargs = dict(
-            device_map='auto', trust_remote_code=True, local_files_only=True
-        )
-        if bnb_config is not None:
-            load_kwargs['quantization_config'] = bnb_config
-        try:
-            llm_local = AutoModelForCausalLM.from_pretrained(MODEL_REPO, **load_kwargs)
-        except Exception as inner:
-            logger.warning(f"4-bit load failed or not supported: {inner}; retrying without quantization")
-            # fallback full precision (may be heavy)
-            load_kwargs.pop('quantization_config', None)
-            llm_local = AutoModelForCausalLM.from_pretrained(MODEL_REPO, **load_kwargs)
-        llm_local.eval()
-        # assign only after success so other threads don't see partial
-        llm = llm_local
-        dt = time.time() - t0
-        logger.info(f'Model loaded successfully in {dt:.1f}s')
-        return True
-    except Exception as e:
-        _model_error = str(e)
-        logger.exception('Lazy model load failed')
-        return False
-    finally:
-        _model_loading = False
+logger.info('Loading GPTQ tokenizer and model...')
+try:
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_REPO, use_fast=True, local_files_only=True)
+    llm = AutoModelForCausalLM.from_pretrained(
+        MODEL_REPO,
+        device_map='auto',
+        trust_remote_code=True,
+        local_files_only=True,
+    )
+    logger.info('GPTQ model loaded')
+except Exception as e:
+    logger.exception('Failed to load GPTQ model')
+    tokenizer, llm = None, None
 
 def create_app():
     app = Flask(__name__)
@@ -163,14 +172,22 @@ def create_app():
 
     # Register blueprints (auth, chats)
     try:
-        from .auth import auth_bp  # type: ignore
-        from .chat_routes import chat_bp  # type: ignore
+        # Import as local modules since app.py runs from /workspace/backend
+        from auth import auth_bp
+        from chat_routes import chat_bp
         app.register_blueprint(auth_bp)
         app.register_blueprint(chat_bp)
     except Exception as e:
         logger.warning(f"Blueprint registration failed (possibly during import stage): {e}")
 
     # Legacy endpoints kept below
+
+    @app.route('/', methods=['GET'])
+    def root():
+        return jsonify({
+            'service': 'SmartGanga Mascot Backend',
+            'endpoints': ['/health', '/tts (POST)', '/stt (POST)', '/llama-chat (POST)']
+        })
 
     @app.route('/tts', methods=['POST'])
     def tts_endpoint():
@@ -195,130 +212,55 @@ def create_app():
             return jsonify({'error': 'No text provided'}), 400
         return jsonify({'result': text})
 
-    @app.route('/llama-chat', methods=['POST'])
-    def llama_chat():  # noqa: C901
-        print("DEBUG: /llama-chat endpoint called")
-        data = request.get_json() or {}
-        prompt = data.get('prompt')
-        if not prompt:
-            return jsonify({'error': 'No prompt provided'}), 400
+    @app.route('/health', methods=['GET'])
+    def health():
+        return jsonify({
+            'status': 'ok',
+            'rag_ready': embedder is not None and index is not None and chunks is not None,
+            'llm_ready': tokenizer is not None and llm is not None
+        })
 
-        # Ensure model is loaded
-        if llm is None:
-            started = load_model()
-            if llm is None:
-                # still not available
-                status = 'loading' if _model_error is None else 'error'
-                return jsonify({'error': 'model_unavailable', 'status': status, 'details': _model_error}), 503
-
-        user_token = request.headers.get('Authorization')
-        if user_token:
-            try:
-                import base64, json
-                decoded = base64.b64decode(user_token).decode('utf-8')
-                user_info = json.loads(decoded)
-                logger.info(f'Received user_info: {user_info}')
-            except Exception:
-                logger.info('Invalid Authorization token format')
-
+    @app.route('/llama-chat', methods=['GET', 'POST'])
+    def llama_chat():
+        logging.debug("Request received at /llama-chat")
+        if request.method == 'GET':
+            return jsonify({
+                'error': 'Use POST with JSON payload {"prompt": "..."}',
+                'example': {'prompt': 'Hello'}
+            }), 405
+        if embedder is None or index is None or chunks is None:
+            return jsonify({"error": "RAG components not initialized"}), 503
+        if tokenizer is None or llm is None:
+            return jsonify({"error": "LLM not initialized"}), 503
         try:
-            # Retrieve top chunks (lightweight hash embedding)
-            retrieved = rag_query(prompt, top_k=3)  # list of {chunk, distance}
-            retrieved_chunks = [r["chunk"] for r in retrieved]
+            data = request.get_json() or {}
+            prompt = data.get("prompt")
+            if not prompt:
+                return jsonify({"error": "No prompt provided"}), 400
+
+            logging.debug(f"Prompt received: {prompt}")
+            query_emb = embedder.encode([prompt])
+            # ensure numpy array with shape (1, D)
+            query_arr = np.array(query_emb, dtype=np.float32)
+            if query_arr.ndim == 1:
+                query_arr = np.expand_dims(query_arr, 0)
+            D, I = index.search(query_arr, k=3)
+            retrieved_chunks = [chunks[i] for i in I[0] if i < len(chunks)]
             context = "\n\n---\n\n".join(retrieved_chunks) if retrieved_chunks else ""
 
-            def truncate_text(text, max_chars=3000):
-                return text[:max_chars]
-
-            safe_prompt = truncate_text(prompt, 500)
-            safe_context = truncate_text(context, 2500)
-
-            if safe_context:
-                full_prompt = f"Use the following context to answer the question. If the context doesn't contain the answer, be honest and say you don't know.\n\nContext:\n{safe_context}\n\nQuestion:\n{safe_prompt}\n\nAnswer:"
-            else:
-                full_prompt = f"Question:\n{safe_prompt}\n\nAnswer:"
-
-            t_prep = time.time()
-            inputs = tokenizer(full_prompt, return_tensors='pt')
-            inputs = {k: v.to(llm.device) for k, v in inputs.items()}
-            logger.info(f"Tokenized prompt in {time.time()-t_prep:.2f}s; generating...")
-            gen_start = time.time()
-            # ---- Dynamic generation parameter logic ----
-            prompt_lower = prompt.lower()
-            long_keywords = [
-                'explain','detailed','elaborate','report','summarize','compare',
-                'list','outline','analyze','advantages','disadvantages','reason','why','steps'
-            ]
-            wants_long = any(k in prompt_lower for k in long_keywords)
-            desired_answer_tokens = 256 if wants_long else 96
-            user_req_max = data.get('max_new_tokens')
-            if isinstance(user_req_max, int) and 16 <= user_req_max <= 1024:
-                desired_answer_tokens = user_req_max
-            try:
-                ctx_window = getattr(llm.config, 'max_position_embeddings', 4096)
-            except Exception:
-                ctx_window = 4096
-            input_token_len = inputs['input_ids'].shape[1]
-            safety_margin = 64
-            available_for_new = max(32, ctx_window - input_token_len - safety_margin)
-            max_new_tokens = min(desired_answer_tokens, available_for_new)
-            # Adaptive temperature/top_p
-            if wants_long:
-                temperature = float(data.get('temperature', 0.75))
-                top_p = float(data.get('top_p', 0.95))
-            else:
-                temperature = float(data.get('temperature', 0.55))
-                top_p = float(data.get('top_p', 0.9))
-            temperature = max(0.1, min(temperature, 1.5))
-            top_p = max(0.1, min(top_p, 1.0))
-            logger.info(
-                f"Generation params: max_new_tokens={max_new_tokens} wants_long={wants_long} input_tokens={input_token_len} ctx_window={ctx_window} temp={temperature} top_p={top_p}"
-            )
-            with torch.inference_mode():
-                output = llm.generate(
-                    **inputs,
-                    max_new_tokens=max_new_tokens,
-                    do_sample=True,
-                    temperature=temperature,
-                    top_p=top_p,
-                    repetition_penalty=1.05,
-                    pad_token_id=tokenizer.eos_token_id,
-                    eos_token_id=tokenizer.eos_token_id,
-                )
-            gen_time = time.time()-gen_start
-            logger.info(f"Generation completed in {gen_time:.2f}s")
+            full_prompt = f"Context:\n{context}\n\nQuestion:\n{prompt}\n\nAnswer:"
+            inputs = tokenizer(full_prompt, return_tensors="pt").to(llm.device)
+            output = llm.generate(**inputs, max_new_tokens=128, do_sample=True, temperature=0.2)
             result = tokenizer.decode(output[0], skip_special_tokens=True)
-            if result.startswith(full_prompt):
-                result = result[len(full_prompt):].strip()
-            new_tokens_generated = output[0].shape[0] - inputs['input_ids'].shape[1]
-            truncated = new_tokens_generated >= max_new_tokens
-            return jsonify({
-                'result': result,
-                'retrieved_count': len(retrieved_chunks),
-                'used_max_new_tokens': max_new_tokens,
-                'new_tokens_generated': int(new_tokens_generated),
-                'truncated': truncated,
-                'wants_long': wants_long,
-                'temperature': temperature,
-                'top_p': top_p,
-                'generation_time_sec': round(gen_time,2)
-            })
+            logging.debug(f"Generated response: {result}")
+            return jsonify({"result": result, "retrieved_count": len(retrieved_chunks)})
         except Exception as e:
-            logger.exception('Error in /llama-chat')
-            return jsonify({'error': str(e)}), 500
+            logging.error(f"Error in /llama-chat: {e}")
+            return jsonify({"error": str(e)}), 500
 
     return app
 app = create_app()
 
-@app.route('/healthz', methods=['GET'])
-def healthz():
-    if llm is not None:
-        return {'status': 'ok'}, 200
-    if _model_error:
-        return {'status': 'error', 'details': _model_error}, 500
-    if _model_loading:
-        return {'status': 'loading'}, 206
-    return {'status': 'not_loaded'}, 202
-
 if __name__ == '__main__':  # pragma: no cover
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    # Disable debug in container to avoid reloader killing the process on exceptions
+    app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)

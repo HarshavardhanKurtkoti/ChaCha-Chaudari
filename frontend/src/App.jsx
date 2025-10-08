@@ -11,17 +11,19 @@ import WarRoom_museum from 'pages/WarRoom_museum';
 import bhashini from 'bhashini-translation';
 import { AuthorizationToken, userId, ulcaApiKey } from '../config'
 import UserDetailsModal from './components/UserDetailsModal';
+import LoginSignupModal from './components/LoginSignupModal';
 
 
 const App = () => {
 	const [botState, setBotState] = useState('idle');
 	const [showModal, setShowModal] = useState(false);
+	const [showLoginSignupModal, setShowLoginSignupModal] = useState(false);
 
 	React.useEffect(() => {
 		// Show modal if no user token in localStorage
 		const userToken = localStorage.getItem('userToken');
 		if (!userToken) {
-			setShowModal(true);
+			setShowLoginSignupModal(true);
 		}
 	}, []);
 
@@ -29,6 +31,22 @@ const App = () => {
 		// Save details as a token (simple base64 for demo)
 		const token = btoa(JSON.stringify(details));
 		localStorage.setItem('userToken', token);
+	};
+
+	const handleLoginSignup = async (details, isSignup) => {
+		const endpoint = isSignup ? '/auth/register' : '/auth/login';
+		const response = await fetch(endpoint, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify(details),
+		});
+		const data = await response.json();
+		if (response.ok) {
+			localStorage.setItem('userToken', data.token);
+			setShowLoginSignupModal(false);
+		} else {
+			alert(data.error || 'Failed to authenticate');
+		}
 	};
 
 	const token = AuthorizationToken;
@@ -47,7 +65,7 @@ const App = () => {
 						}}>
 						<Router>
 							<Routes>
-								<Route path='/' element={<Greeting />} />
+								<Route path='/' element={<Home />} />
 								<Route path='/home' element={<Home />} />
 								<Route path='/navigation' element={<Navigation />} />
 								<Route path='/riverine_ecology' element={<RiverineEcology />} />
@@ -59,6 +77,11 @@ const App = () => {
 							isOpen={showModal}
 							onClose={() => setShowModal(false)}
 							onSave={handleSaveUserDetails}
+						/>
+						<LoginSignupModal
+							isOpen={showLoginSignupModal}
+							onClose={() => setShowLoginSignupModal(false)}
+							onAuthenticate={handleLoginSignup}
 						/>
 					</MantineProvider>
 				</BotStateContext.Provider>

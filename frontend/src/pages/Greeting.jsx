@@ -1,48 +1,84 @@
-import React, { Fragment, useEffect, useState } from 'react'
-import greetImg from '../assets/chacha-cahaudhary/chacha.webp'
-import { useNavigate } from "react-router-dom";
+import React, { Fragment, useEffect, useState } from 'react';
+import greetImg from '../assets/chacha-cahaudhary/chacha.webp';
+import LoginSignupModal from '../components/LoginSignupModal';
 
-
-
-const greetingContent = [
-    {
-        title: "Problem Description",
-        text: `Chacha Chaudhary was declared the mascot of the Namami Gange Programme at the 37th Executive Committee meeting of the National Mission for Clean Ganga (NMCG). NMCG has tied up with Diamond Toons to develop and distribute comics, e-comics, and animated videos. The objective is to bring about behavioral change amongst children towards the Ganga and other rivers. To make this solution even more interactive, an AI, ML & chatbot-powered Interactive Robot Mascot (Chacha Chaudhary) adds value to the river people connect component of Namami Gange.`
-    },
-    {
-        title: "Prerequisites",
-        text: `The robot should independently connect with school children, the common man, and all stakeholders of NMCG for creating awareness and information dissemination. The product must be user-friendly and citizen-centric.`
-    },
-    {
-        title: "Solution",
-        text: `An interactive robot named “Chacha Chaudhary” will serve as the AI, ML, and chatbot-enabled mascot of Namami Gange. Equipped with a touch panel, it greets visitors at the entrance and guides them through each component of the Namami Gange flagship program in the River Basin War Room & Ganga Museum. The digital avatar of Chacha Chaudhary will also be available on the NMCG website. This Robot Mascot & digital avatar solution will actively engage citizens to impart information, awareness, and education around riverine ecology in an interactive format—both digitally and through outdoor installations.`
-    }
-];
+function GreetingPopup({ onClose }) {
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="max-w-6xl w-full rounded-3xl shadow-2xl p-8 sm:p-12 border border-gray-300 flex flex-col items-center" style={{ maxHeight: '80vh', backdropFilter: 'blur(10px)', background: 'rgba(255, 255, 255, 0.8)' }}>
+                <button
+                    className="absolute top-6 right-6 text-3xl font-bold text-gray-400 hover:text-blue-400 transition-all duration-200"
+                    style={{ background: 'transparent', border: 'none', zIndex: 10 }}
+                    onClick={onClose}
+                    aria-label="Close greeting"
+                >
+                    &times;
+                </button>
+                <div className="w-36 h-36 sm:w-48 sm:h-48 mb-6 rounded-full shadow-lg border-4 border-blue-300 bg-white overflow-hidden flex items-center justify-center">
+                    <img src={greetImg} alt="Chacha Chaudhary" className="w-[115%] h-[108%] object-cover" />
+                </div>
+                <h1 className="text-2xl sm:text-3xl font-extrabold text-blue-900 mb-6 text-center">Welcome to Namami Gange Interactive Experience</h1>
+                <p className="text-gray-600 text-sm sm:text-base mb-6 text-center">To get started:</p>
+                <ul className="text-gray-700 text-sm sm:text-base list-disc list-inside mb-6">
+                    <li>Click on the avatar to interact with Chacha Chaudhary.</li>
+                    <li>Use the text box to type your questions.</li>
+                    <li>Enable your microphone to talk directly to Chacha Chaudhary.</li>
+                </ul>
+                <p className="text-gray-600 text-sm sm:text-base text-center">Close this popup to begin your journey!</p>
+            </div>
+        </div>
+    );
+}
 
 function Greeting() {
-    let navigate = useNavigate();
+    const [showPopup, setShowPopup] = useState(true);
+    const [showLoginSignupModal, setShowLoginSignupModal] = useState(false);
+
+    // Close any open popups when auth succeeds (Google or email/password)
     useEffect(() => {
-        const timer = setTimeout(() => {
-            return navigate("/home");
-        }, 10000);
-        return () => clearTimeout(timer);
+        const onAuthSuccess = () => {
+            setShowLoginSignupModal(false);
+            setShowPopup(false);
+        };
+        window.addEventListener('auth-success', onAuthSuccess);
+        return () => window.removeEventListener('auth-success', onAuthSuccess);
     }, []);
+
+    const handleAuthenticate = async (details, isSignup) => {
+        const endpoint = isSignup ? '/auth/register' : '/auth/login';
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(details),
+        });
+        const data = await response.json();
+        if (response.ok) {
+            localStorage.setItem('userToken', data.token);
+            setShowLoginSignupModal(false);
+        } else {
+            alert(data.error || 'Failed to authenticate');
+        }
+    };
 
     return (
         <Fragment>
-            <div className="min-h-screen bg-gradient-to-br from-blue-50 to-blue-200 flex flex-col items-center justify-center py-10 px-2">
-                <div className="max-w-lg w-full bg-white rounded-2xl shadow-xl p-4 sm:p-8 border border-blue-100 flex flex-col items-center overflow-y-auto" style={{ maxHeight: '90vh' }}>
-                    <img src={greetImg} alt="Chacha Chaudhary" className="w-24 h-24 sm:w-32 sm:h-32 mb-4 rounded-full shadow-lg border-4 border-blue-200 bg-white" />
-                    <h1 className="text-2xl sm:text-3xl font-extrabold text-blue-800 mb-4 text-center">Welcome to Namami Gange Interactive Experience</h1>
-                    {greetingContent.map((section, idx) => (
-                        <section className={`w-full ${idx < greetingContent.length - 1 ? 'mb-4 sm:mb-6' : ''}`} key={section.title}>
-                            <h2 className="text-lg sm:text-xl font-bold text-blue-700 mb-1 sm:mb-2">{section.title}</h2>
-                            <p className="text-gray-700 leading-relaxed text-sm sm:text-base">{section.text}</p>
-                        </section>
-                    ))}
-                </div>
-            </div>
+            {showPopup && (
+                <GreetingPopup
+                    onClose={() => {
+                        setShowPopup(false);
+                        setShowLoginSignupModal(true);
+                    }}
+                />
+            )}
+            {showLoginSignupModal && (
+                <LoginSignupModal
+                    isOpen={showLoginSignupModal}
+                    onClose={() => setShowLoginSignupModal(false)}
+                    onAuthenticate={handleAuthenticate}
+                />
+            )}
         </Fragment>
     );
 }
-export default Greeting
+
+export default Greeting;

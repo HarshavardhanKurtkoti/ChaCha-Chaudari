@@ -1,4 +1,3 @@
-
 # Use NVIDIA PyTorch pre-built image (includes CUDA, torch, torchvision, torchaudio)
 FROM nvcr.io/nvidia/pytorch:23.06-py3
 
@@ -19,18 +18,17 @@ WORKDIR /workspace/backend
 
 
 # Copy requirements and source code
-COPY backend/requirements.txt ./requirements.txt
-COPY backend/ ./backend/
+COPY backend/requirements.txt /workspace/backend/requirements.txt
+COPY backend/ /workspace/backend/
 
 
 # Install Python dependencies (torch, torchvision, torchaudio already included)
-RUN pip install -r requirements.txt \
- && pip install auto-gptq optimum \
- && pip uninstall -y librosa numba llvmlite || true
+RUN pip install -r /workspace/backend/requirements.txt \
+ && pip install auto-gptq optimum
 
 
 # Expose Flask port
 EXPOSE 5000
 
 # Default command
-CMD ["python3", "backend/app.py"]
+CMD ["python3", "/workspace/backend/app.py"]
