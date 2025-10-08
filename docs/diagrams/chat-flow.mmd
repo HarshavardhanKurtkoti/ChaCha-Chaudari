@@ -1,0 +1,23 @@
+sequenceDiagram
+  participant U as User
+  participant FE as React ChatBot
+  participant LLM as Flask /llama-chat
+  participant R as rag_utils (FAISS)
+  participant M as Llama-2-7b-chat-hf
+  participant TTS as Flask /tts
+
+  U->>FE: Type or speak a question
+  FE->>LLM: POST /llama-chat { prompt } (Authorization header if present)
+  LLM->>R: embed(prompt) + index.search(k=3)
+  R-->>LLM: top chunks (context)
+  LLM->>M: Generate answer with context
+  M-->>LLM: Answer text
+  LLM-->>FE: { result, retrieved_count }
+  alt Voice mode enabled
+    FE->>TTS: POST /tts { text: result }
+    TTS->>TTS: edge-tts synth, save mp3
+    TTS-->>FE: mp3 stream
+    FE->>U: Play audio
+  else Text-only
+    FE->>U: Render assistant bubble
+  end

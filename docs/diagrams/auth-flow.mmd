@@ -1,0 +1,14 @@
+sequenceDiagram
+  participant U as User (Browser)
+  participant FE as React Frontend
+  participant BE as Flask /auth
+  participant DB as MongoDB
+
+  U->>FE: Open site (no token)
+  FE->>U: Show LoginSignupModal
+  U->>FE: Submit name/email/password
+  FE->>BE: POST /auth/register {name, email, password}
+  BE->>DB: Insert user (hash password)
+  BE-->>FE: 201 { token, user }
+  FE->>U: Close modal, store token in localStorage
+  note over FE: Subsequent requests send Authorization: Bearer <token>

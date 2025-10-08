@@ -1,0 +1,26 @@
+flowchart TD
+  APP[App jsx]
+  MP[MantineProvider]
+  CTX[MessageProvider and BotStateContext]
+  RT[Router]
+
+  APP --> MP --> CTX --> RT
+  RT --> HOME[Home jsx]
+  RT --> NAV[Navigation jsx]
+  RT --> RE[RiverineEcology jsx]
+  RT --> WM[WarRoom_museum jsx]
+
+  APP --> LSM[LoginSignupModal]
+  APP --> UDM[UserDetailsModal]
+  HOME --> CHATPOP[ChatBot Overlay]
+
+  HOME --> BOT[Bot 3D Canvas]
+  HOME --> CAR[CarouselComp]
+  HOME --> GREET[Greeting Popup]
+
+  CHATPOP --> CHATBOT[ChatBot jsx]
+  CHATBOT --> WELCOME[Welcome card]
+  CHATBOT --> CMSG[ChatMessage items]
+  CHATBOT --> SEL[SelectLang]
+
+  CTX --> CHATBOT

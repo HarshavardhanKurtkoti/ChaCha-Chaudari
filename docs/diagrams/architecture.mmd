@@ -1,0 +1,63 @@
+flowchart LR
+  %% Subgraphs with simple IDs for CLI compatibility
+  subgraph User
+    B[Web Browser]
+  end
+
+  subgraph FE
+    %% React Frontend
+    PAGES[Pages Home Navigation RiverineEcology WarRoom_museum]
+    POPUPS[Popups LoginSignupModal UserDetailsModal ChatBot Overlay]
+    CONTEXT[Context MessageProvider BotStateContext]
+  end
+
+  subgraph BE
+    %% Flask Backend
+    AUTH[Auth endpoints]
+    CHATS[Chats endpoints]
+    LLM[llama chat]
+    TTS[tts]
+  end
+
+  subgraph RAG
+    %% RAG + LLM
+    PDF[AnnualReport2023.pdf]
+    CHUNKS[rag_utils]
+    FAISS[FAISS index]
+    Llama[Llama 2 7b chat hf local]
+  end
+
+  subgraph Storage
+    MONGO[MongoDB users chats]
+    DATADIR[backend Data TTS mp3 files]
+  end
+
+  subgraph BrowserAPIs
+    %% Browser-side speech
+    STT[Web Speech API]
+  end
+
+  subgraph CloudTTS
+    EDGETTS[edge tts]
+  end
+
+  B --> FE
+  FE --> BE
+
+  AUTH --> MONGO
+  CHATS --> MONGO
+
+  LLM --> CHUNKS
+  CHUNKS --> FAISS
+  PDF --> CHUNKS
+  LLM --> Llama
+
+  TTS --> DATADIR
+  TTS --> EDGETTS
+
+  FE --> LLM
+  FE --> AUTH
+  FE --> CHATS
+  FE --> TTS
+
+  B --> STT

@@ -1,0 +1,16 @@
+flowchart LR
+  A[GET health] --> B[Client]
+  C[POST auth register] --> D[users]
+  E[POST auth login]
+  F[GET auth me] --> D
+
+  G[GET chats list] --> D
+  H[POST chats save] --> D
+  I[DELETE chats id] --> D
+  J[DELETE chats delete_all] --> D
+
+  K[GET chats admin all] --> D
+  L[GET chats admin stats] --> D
+
+  M[POST llama chat] --> N[rag utils and Llama]
+  O[POST tts] --> P[edge tts mp3]

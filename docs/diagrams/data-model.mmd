@@ -1,0 +1,25 @@
+classDiagram
+  class User {
+    +string name
+    +string email [unique]
+    +string password (bcrypt hash)
+    +bool is_admin
+    +string created (ISO)
+  }
+
+  class Chat {
+    +string id
+    +string user_email (FK -> User.email)
+    +string title
+    +Message[] messages
+    +string created (ISO)
+    +string updated (ISO)
+  }
+
+  class Message {
+    +string role  // 'user' | 'assistant'
+    +string content
+    +object meta  // optional
+  }
+
+  User "1" <--> "*" Chat : email=user_email
