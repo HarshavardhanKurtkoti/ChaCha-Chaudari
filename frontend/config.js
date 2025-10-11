@@ -1,7 +1,6 @@
-// Prefer environment variables (Vite): define in frontend/.env or .env.local
-export const AuthorizationToken = import.meta?.env?.VITE_AUTH_TOKEN || "";
-export const userId = import.meta?.env?.VITE_ULCA_USER_ID || "";
-export const ulcaApiKey = import.meta?.env?.VITE_ULCA_API_KEY || "";
+export const AuthorizationToken = "your_auth_token"
+export const userId = "your_user_id"
+export const ulcaApiKey = "your_ulcaApi_key"
 
 /** 
  * you can get it from this link :- https://bhashini.gov.in/ulca/user/register 

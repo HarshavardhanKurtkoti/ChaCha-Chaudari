@@ -98,7 +98,6 @@ yarn-error.log*
 Llama-2-7b-chat-hf/
 backend/Llama-2-7b-chat-hf/
 backend/Data/
-!backend/Data/*.pdf
 models/
 checkpoints/
 weights/
