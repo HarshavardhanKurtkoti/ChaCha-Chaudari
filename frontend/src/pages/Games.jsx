@@ -373,8 +373,8 @@ export default function Games() {
 
   return (
     <motion.div initial="initial" animate="animate" exit="exit" variants={page} className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-700 text-gray-100">
-      <div className="max-w-6xl mx-auto p-6">
-        <motion.header variants={card} className="rounded-2xl bg-gradient-to-br from-gray-800/70 to-gray-900/70 shadow-lg p-6 flex items-center gap-4 transform-gpu backdrop-blur-sm border border-gray-700">
+      <div className="max-w-6xl mx-auto px-4 py-6 md:p-6">
+        <motion.header variants={card} className="rounded-2xl bg-gradient-to-br from-gray-800/70 to-gray-900/70 shadow-lg px-4 py-5 md:p-6 flex items-center gap-4 transform-gpu backdrop-blur-sm border border-gray-700">
           <img src="https://nmcg.nic.in/images/nmcgGif.gif" alt="NMCG" className="w-14 h-14" />
           <div>
             <h1 className="text-2xl font-extrabold text-white">River Guardians: Play & Learn</h1>
@@ -386,7 +386,7 @@ export default function Games() {
               <div className="text-xs text-gray-300">{progress.streak || 0} 🔥</div>
             </div>
             <div className="flex items-center gap-3">
-              <div className="rounded-full bg-emerald-500 text-white w-20 h-20 flex flex-col items-center justify-center shadow-lg">
+              <div className="rounded-full bg-emerald-500 text-white w-16 h-16 md:w-20 md:h-20 flex flex-col items-center justify-center shadow-lg">
                 <div className="text-sm font-bold">{progress.points}</div>
                 <div className="text-[10px]">pts</div>
               </div>
@@ -394,14 +394,14 @@ export default function Games() {
           </div>
         </motion.header>
 
-        <section className="grid grid-cols-12 gap-6 mt-6 items-start">
+        <section className="grid grid-cols-12 gap-4 md:gap-6 mt-6 items-start">
           {/* Mission area: large rounded container with centered buttons */}
           <motion.div variants={card} className={`col-span-12 ${CARD.replace('p-4','p-6')} rounded-2xl`}>
             <div className="max-w-3xl mx-auto text-center py-6">
               {!activeGame && (
                 <>
                   <h3 className="font-semibold text-blue-700 text-lg mb-4">Choose a mission</h3>
-                  <div className="flex gap-6 justify-center">
+                  <div className="flex flex-wrap gap-3 md:gap-6 justify-center">
                     <motion.button whileHover={{ scale: 1.03 }} whileFocus={{ scale: 1.02 }} onClick={() => setActiveGame('quiz')} className="px-6 py-3 rounded-md bg-gradient-to-br from-gray-700 to-gray-800 border border-gray-700 hover:brightness-110">
                       <div className="text-sm font-semibold text-white">Ganga quiz</div>
                     </motion.button>
@@ -435,7 +435,7 @@ export default function Games() {
           </motion.div>
 
           {/* Two-column layout: left small stacked boxes, right big badges + daily */}
-          <div className="col-span-12 grid grid-cols-12 gap-6">
+          <div className="col-span-12 grid grid-cols-12 gap-4 md:gap-6">
             <div className="col-span-12 lg:col-span-6 space-y-6">
               <motion.div variants={card} className={CARD}>
                 <PlayerNamePrompt onChange={setPlayerName} />
@@ -483,7 +483,7 @@ export default function Games() {
                     // if all badges passed, use 1.5x of current points as max so it keeps growing
                     return Math.ceil((progress.points || 1) * 1.5);
                   })()} />
-                  <div className="mt-3 grid grid-cols-3 gap-4">
+                  <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-3 md:gap-4">
                     {badgeRules.map((b) => (
                       <Badge key={b.id} label={b.label} unlocked={progress.points >= b.threshold || progress.badges.includes(b.id)} />
                     ))}
