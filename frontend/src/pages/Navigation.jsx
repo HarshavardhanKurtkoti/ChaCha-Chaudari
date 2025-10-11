@@ -1,18 +1,11 @@
-
-
 import axios from 'axios';
-import { NavBar } from 'components';
-import React, { useEffect, useState } from 'react';
-
-// Import leaflet styles (make sure leaflet is installed in your project)
-
-
-
+import { useEffect, useState } from 'react';
+import { motion } from 'framer-motion';
+import { Skeleton } from '@mantine/core';
 
 export default function Navigation() {
     const [latitude, setLatitude] = useState(null);
     const [longitude, setLongitude] = useState(null);
-    const [response, setResponse] = useState({});
     const [distance, setDistance] = useState(null);
     const [mapCenter, setMapCenter] = useState(null); // {lat, lon}
 
@@ -20,37 +13,38 @@ export default function Navigation() {
     const GANGA_AARTI_LAT = 25.3062;
     const GANGA_AARTI_LON = 83.0066;
 
-
-        useEffect(() => {
-            if (navigator.geolocation) {
-                navigator.geolocation.getCurrentPosition(success, error, { enableHighAccuracy: true });
-            } else {
-                console.log('Geolocation not supported');
-            }
-            // eslint-disable-next-line
+    useEffect(() => {
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(success, error, { enableHighAccuracy: true });
+        } else {
+            console.log('Geolocation not supported');
+        }
         }, []);
 
-        useEffect(() => {
-            if (latitude && longitude) {
-                // Calculate distance to Ganga Aarti
-                setDistance(haversineDistance(latitude, longitude, GANGA_AARTI_LAT, GANGA_AARTI_LON));
-                const userToken = localStorage.getItem('userToken');
-                axios
-                    .post('http://localhost:1212/updateLocation', {
+    useEffect(() => {
+        if (latitude && longitude) {
+            // Calculate distance to Ganga Aarti
+            setDistance(haversineDistance(latitude, longitude, GANGA_AARTI_LAT, GANGA_AARTI_LON));
+            const userToken = localStorage.getItem('userToken');
+            axios
+                .post(
+                    'http://localhost:1212/updateLocation',
+                    {
                         lat: latitude,
                         lon: longitude,
-                    }, {
+                    },
+                    {
                         headers: {
-                            'Authorization': userToken || ''
-                        }
-                    })
-                    .then((res) => {
-                        setResponse(res.data);
-                    });
-                // Default map center to user location
-                setMapCenter({ lat: latitude, lon: longitude });
-            }
-        }, [latitude, longitude]);
+                            Authorization: userToken || '',
+                        },
+                    }
+                )
+                .then(() => {})
+                .catch(() => {});
+            // Default map center to user location
+            setMapCenter({ lat: latitude, lon: longitude });
+        }
+    }, [latitude, longitude]);
 
     function success(position) {
         const lat = position.coords.latitude;
@@ -82,68 +76,95 @@ export default function Navigation() {
         return d.toFixed(2);
     }
 
-            // Handler to center map on Ganga Aarti
-            const handleLocateAarti = () => {
-                setMapCenter({ lat: GANGA_AARTI_LAT, lon: GANGA_AARTI_LON });
-            };
+    // Handler to center map on Ganga Aarti
+    const handleLocateAarti = () => {
+        setMapCenter({ lat: GANGA_AARTI_LAT, lon: GANGA_AARTI_LON });
+    };
 
-            // Handler to center map on user's location
-            const handleLocateMe = () => {
-                if (latitude && longitude) {
-                    setMapCenter({ lat: latitude, lon: longitude });
-                }
-            };
+    // Handler to center map on user's location
+    const handleLocateMe = () => {
+        if (latitude && longitude) {
+            setMapCenter({ lat: latitude, lon: longitude });
+        }
+    };
 
-        return (
-            <div className="min-h-screen bg-gradient-to-br from-blue-50 via-green-50 to-yellow-100 pb-10">
-                <NavBar />
-                <div className="max-w-3xl mx-auto px-4 mt-8">
-                    <div className="rounded-2xl shadow-lg bg-white/90 p-6">
-                        <h1 className="text-2xl font-bold text-blue-700 mb-4">Navigation & Location</h1>
-                        <div className="mb-4 text-gray-700">
-                            {latitude && longitude ? (
-                                <>
-                                    <span className="font-semibold">Your Location:</span> <span>Latitude: {latitude}, Longitude: {longitude}</span>
-                                </>
-                            ) : (
-                                <span>Fetching your location...</span>
-                            )}
-                        </div>
-                        {/* Map Section */}
-                                    <div className="mb-4 rounded-lg overflow-hidden shadow border border-blue-100">
-                                        {mapCenter && (
-                                            <iframe
-                                                title="Map"
-                                                width="100%"
-                                                height="350"
-                                                style={{ border: 0 }}
-                                                loading="lazy"
-                                                allowFullScreen
-                                                src={`https://www.openstreetmap.org/export/embed.html?bbox=${mapCenter.lon-0.01}%2C${mapCenter.lat-0.01}%2C${mapCenter.lon+0.01}%2C${mapCenter.lat+0.01}&layer=mapnik&marker=${mapCenter.lat}%2C${mapCenter.lon}&marker=${GANGA_AARTI_LAT}%2C${GANGA_AARTI_LON}`}
-                                            ></iframe>
-                                        )}
-                                    </div>
-                                                <div className="mb-2 flex items-center gap-4">
-                                                    <span className="font-semibold">Distance from Ganga Aarti:</span>
-                                                    <span className="ml-2 text-blue-700 font-bold">
-                                                        {distance !== null ? `${distance} km` : 'Not available'}
-                                                    </span>
-                                                    <button
-                                                        className="px-4 py-2 bg-blue-600 text-white rounded-lg shadow hover:bg-blue-700 transition-colors"
-                                                        onClick={handleLocateAarti}
-                                                    >
-                                                        Locate Ganga Aarti
-                                                    </button>
-                                                    <button
-                                                        className="px-4 py-2 bg-green-600 text-white rounded-lg shadow hover:bg-green-700 transition-colors"
-                                                        onClick={handleLocateMe}
-                                                        disabled={!latitude || !longitude}
-                                                    >
-                                                        Locate Me
-                                                    </button>
-                                                </div>
+    return (
+        <div className="min-h-screen bg-gradient-to-br from-blue-50 via-green-50 to-yellow-100 pb-10">
+            <div className="max-w-3xl mx-auto px-4 mt-8">
+                <motion.div
+                    initial={{ opacity: 0, y: 16 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    viewport={{ once: false, amount: 0.3 }}
+                    transition={{ duration: 0.45 }}
+                    className="rounded-2xl shadow-lg bg-white/90 p-6"
+                >
+                    <h1 className="text-2xl font-bold text-blue-700 mb-4">Navigation &amp; Location</h1>
+                    <div className="mb-4 text-gray-700">
+                        {latitude && longitude ? (
+                            <>
+                                <span className="font-semibold">Your Location:</span>{' '}
+                                <span>
+                                    Latitude: {latitude}, Longitude: {longitude}
+                                </span>
+                            </>
+                        ) : (
+                            <div className="space-y-2">
+                                <Skeleton height={16} width="60%" radius="sm" />
+                                <Skeleton height={16} width="40%" radius="sm" />
+                            </div>
+                        )}
                     </div>
-                </div>
+                    {/* Map Section */}
+                    <motion.div
+                        initial={{ opacity: 0, scale: 0.98 }}
+                        whileInView={{ opacity: 1, scale: 1 }}
+                        viewport={{ once: false, amount: 0.3 }}
+                        transition={{ duration: 0.35 }}
+                        className="mb-4 rounded-lg overflow-hidden shadow border border-blue-100"
+                    >
+                        {mapCenter ? (
+                            <iframe
+                                title="Map"
+                                width="100%"
+                                height="350"
+                                style={{ border: 0 }}
+                                loading="lazy"
+                                allowFullScreen
+                                src={`https://www.openstreetmap.org/export/embed.html?bbox=${mapCenter.lon - 0.01}%2C${mapCenter.lat - 0.01}%2C${mapCenter.lon + 0.01}%2C${mapCenter.lat + 0.01}&layer=mapnik&marker=${mapCenter.lat}%2C${mapCenter.lon}&marker=${GANGA_AARTI_LAT}%2C${GANGA_AARTI_LON}`}
+                            ></iframe>
+                        ) : (
+                            <Skeleton height={350} radius="md" />
+                        )}
+                    </motion.div>
+                    <motion.div
+                        initial={{ opacity: 0, y: 12 }}
+                        whileInView={{ opacity: 1, y: 0 }}
+                        viewport={{ once: false, amount: 0.3 }}
+                        transition={{ duration: 0.35 }}
+                        className="mb-2 flex items-center gap-4"
+                    >
+                        <span className="font-semibold">Distance from Ganga Aarti:</span>
+                                                {distance !== null ? (
+                                                    <span className="ml-2 text-blue-700 font-bold">{`${distance} km`}</span>
+                                                ) : (
+                                                    <Skeleton height={20} width={100} radius="sm" className="ml-2" />
+                                                )}
+                        <button
+                            className="px-4 py-2 bg-blue-600 text-white rounded-lg shadow hover:bg-blue-700 transition-colors"
+                            onClick={handleLocateAarti}
+                        >
+                            Locate Ganga Aarti
+                        </button>
+                        <button
+                            className="px-4 py-2 bg-green-600 text-white rounded-lg shadow hover:bg-green-700 transition-colors"
+                            onClick={handleLocateMe}
+                            disabled={!latitude || !longitude}
+                        >
+                            Locate Me
+                        </button>
+                    </motion.div>
+                </motion.div>
             </div>
-        );
-    }
+        </div>
+    );
+}

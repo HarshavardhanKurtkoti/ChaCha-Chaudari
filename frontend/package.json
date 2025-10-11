@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@emotion/react": "^11.11.1",
@@ -19,6 +21,8 @@
     "@react-three/drei": "^9.56.7",
     "@react-three/fiber": "^8.13.2",
     "axios": "^1.5.0",
+  "canvas-confetti": "^1.9.3",
+  "framer-motion": "^11.2.10",
     "bhashini-translation": "^1.0.4",
     "embla-carousel-react": "^7.0.0",
     "react": "^18.2.0",
@@ -48,6 +52,10 @@
     "postcss": "^8.4.29",
     "tailwindcss": "^3.3.3",
     "vite": "^4.4.5",
-    "vite-jsconfig-paths": "^2.0.1"
+    "vite-jsconfig-paths": "^2.0.1",
+    "vitest": "^1.6.0",
+    "@testing-library/react": "^14.0.0",
+    "@testing-library/jest-dom": "^6.4.2",
+    "jsdom": "^24.0.0"
   }
 }

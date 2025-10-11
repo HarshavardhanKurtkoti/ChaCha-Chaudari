@@ -26,7 +26,7 @@ const CarouselComp = () => {
   };
 
   return (
-  <div className="relative w-full h-[450px] max-h-[500px] flex items-center justify-center mt-32">
+  <div className="relative w-full h-[450px] max-h-[500px] flex items-center justify-center">
       <button
         className="absolute left-4 top-1/2 transform -translate-y-1/2 bg-white/70 rounded-full px-3 py-1 shadow hover:bg-white"
         onClick={prevSlide}
@@ -37,7 +37,7 @@ const CarouselComp = () => {
       <img
         src={images[current]}
         alt={`Ganga ${current + 1}`}
-        className="rounded-2xl object-cover w-full h-[450px] max-h-[500px] shadow-lg"
+        className="rounded-2xl object-cover w-full h-full shadow-lg"
       />
       <button
         className="absolute right-4 top-1/2 transform -translate-y-1/2 bg-white/70 rounded-full px-3 py-1 shadow hover:bg-white"

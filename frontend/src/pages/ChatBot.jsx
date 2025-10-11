@@ -1,6 +1,7 @@
-import React, { Fragment, useContext, useEffect, useRef, useState } from 'react';
-import { Welcome, ChatMessage } from 'components';
-import { BsCheckLg, BsMic } from 'react-icons/bs';
+import { Fragment, useContext, useEffect, useRef, useState } from 'react';
+import '../styles/hide-scrollbar.css';
+import { Welcome } from 'components';
+import { BsMic } from 'react-icons/bs';
 import { HiOutlineSpeakerWave, HiOutlineSpeakerXMark } from 'react-icons/hi2';
 import { samplePhrases } from 'data';
 import { useMessageContext } from 'context/MessageProvider';
@@ -8,9 +9,11 @@ import { BotStateContext } from 'context/BotState';
 import SelectLang from 'components/SelectLang';
 import SpeechRecognition, { useSpeechRecognition } from 'react-speech-recognition';
 import axios from 'axios';
-import bhashini from 'bhashini-translation';
+import PropTypes from 'prop-types';
 
 const ChatBot = ({ setIsSpeaking }) => {
+	// On mount, optionally trigger voice flow via custom event. We intentionally don't include
+	// addMessage/getResponse/setIsSpeaking in deps to avoid re-wiring handlers repeatedly.
 	useEffect(() => {
 		const handler = (e) => {
 			if (e.detail && e.detail.message === 'hello') {
@@ -29,6 +32,7 @@ const ChatBot = ({ setIsSpeaking }) => {
 		};
 		window.addEventListener('activate-chatbot-voice', handler);
 		return () => window.removeEventListener('activate-chatbot-voice', handler);
+	// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 	// Mic loudness state
 	const [micLevel, setMicLevel] = useState(0);
@@ -68,28 +72,69 @@ const ChatBot = ({ setIsSpeaking }) => {
 	const { chatHistory, addMessage } = useMessageContext();
 
 	const bottomRef = useRef(null);
+	const containerRef = useRef(null);
 
 	const { transcript, listening, resetTranscript, browserSupportsSpeechRecognition } = useSpeechRecognition();
 
+	// Track voice talk time when listening is true
 	useEffect(() => {
-		scrollToBottom();
+		const KEY = 'chatTalkSeconds';
+		let intervalId = null;
+		if (listening) {
+			intervalId = setInterval(() => {
+				try {
+					const raw = localStorage.getItem(KEY);
+					const val = raw ? parseInt(raw, 10) || 0 : 0;
+					localStorage.setItem(KEY, String(val + 1));
+				} catch { /* ignore */ }
+			}, 1000);
+		}
+		return () => { if (intervalId) clearInterval(intervalId); };
+	}, [listening]);
+
+	useEffect(() => {
+		// On mount, make sure chat container is scrolled to bottom without smooth
+		scrollToBottom({ smooth: false });
 	}, []);
 
 	useEffect(() => {
-		scrollToBottom();
+		// When chat updates, scroll the container (use instant scroll to avoid
+		// the browser trying to scroll the whole page during a smooth animation).
+		scrollToBottom({ smooth: false });
 	}, [chatHistory, state]);
 
-	const scrollToBottom = () => {
-		bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+	const scrollToBottom = (opts = { smooth: false }) => {
+	 	try {
+	 		if (containerRef.current) {
+	 			// Prefer setting scrollTop directly for more predictable behavior
+	 			if (opts.smooth) {
+	 				containerRef.current.scrollTo({ top: containerRef.current.scrollHeight, behavior: 'smooth' });
+	 			} else {
+	 				containerRef.current.scrollTop = containerRef.current.scrollHeight;
+	 			}
+	 			return;
+	 		}
+	 		if (bottomRef.current) {
+	 			bottomRef.current.scrollIntoView({ behavior: opts.smooth ? 'smooth' : 'auto' });
+	 		}
+	 	} catch (e) { void e; }
 	};
 
 	useEffect(() => {
 		setBotState(state);
 		console.log(botState);
+	// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [state]);
 
 	const focusInput = () => {
-		inputRef.current?.focus();
+		try {
+			if (inputRef.current) {
+				if (typeof inputRef.current.focus === 'function') {
+					try { inputRef.current.focus({ preventScroll: true }); }
+					catch (e) { inputRef.current.focus(); }
+				}
+			}
+		} catch (e) { void e; }
 	};
 
 	useEffect(() => {
@@ -106,12 +151,20 @@ const ChatBot = ({ setIsSpeaking }) => {
 		}
 	});
 
-	let endpoint = 'http://localhost:5000/llama-chat';
+	// const endpoint = 'http://localhost:5000/llama-chat';
 
 	const getResponse = async (userdata, endpoint) => {
 		try {
+			let ageGroup = null;
+			try {
+				const p = JSON.parse(localStorage.getItem('userProfile') || 'null');
+				const age = p?.age;
+				if (typeof age === 'number') {
+					ageGroup = age < 10 ? 'kid' : age < 16 ? 'teen' : 'adult';
+				}
+			} catch { /* ignore */ }
 			const userToken = localStorage.getItem('userToken');
-			const response = await api.post(endpoint, userdata, {
+			const response = await api.post(endpoint, { ...userdata, ageGroup }, {
 				headers: {
 					'Authorization': userToken || ''
 				}
@@ -185,20 +238,48 @@ const ChatBot = ({ setIsSpeaking }) => {
 		setIsTyping(false);
 	};
 
+	// Centralized send function used by button click and Enter key
+	const sendMessage = async () => {
+		try {
+			SpeechRecognition.stopListening();
+			resetTranscript();
+			setIsTyping(false);
+			if (message) {
+				addMessage('user', message);
+				setState('waiting');
+				SpeechRecognition.abortListening();
+				let resp = await getResponse({ prompt: message }, '/llama-chat');
+				setMessage('');
+				resetTranscript();
+				setState('idle');
+				if (resp && resp.data && resp.data.result) {
+					addMessage('assistant', resp.data.result);
+					if (audio) {
+						playTTS(resp.data.result);
+						if (setIsSpeaking) setIsSpeaking(true);
+					} else {
+						if (setIsSpeaking) setIsSpeaking(false);
+					}
+				}
+			}
+		} catch (e) { console.error('sendMessage error', e); }
+	};
+
 	const handleaudio = () => {
 		setAudio(!audio);
 		if (setIsSpeaking) setIsSpeaking(!audio); // update mascot speaking state
 	};
 
 	return (
-	<main className='bg-gray-900 bg-opacity-95 md:rounded-lg md:shadow-md p-6 pt-2 pb-4 w-full h-full flex flex-col'>
-		<h1 className='text-lg text-gray-100 font-semibold mb-2'>Welcome to NMCG - <span className='underline underline-offset-2 text-blue-300'> Chacha Chaudhary</span></h1>
-	<section className='chat-box border-t-4 border-gray-700 pt-2 overflow-y-auto flex-grow pb-4 h-[55vh]'>
-			<div className='flex flex-col space-y-4'>
+	<main className='bg-gray-900 bg-opacity-95 md:rounded-lg md:shadow-md p-4 pt-2 pb-3 w-full h-full flex flex-col'>
+		<h1 className='text-base text-gray-100 font-semibold mb-1'>Welcome to NMCG - <span className='underline underline-offset-2 text-blue-300'> Chacha Chaudhary</span></h1>
+			<div className='relative w-full px-6 md:px-8 h-[56vh] md:h-[60vh]'>
+				<section ref={containerRef} className='chat-box border-t-2 border-gray-700 pt-4 overflow-y-auto h-full pb-28 hide-scrollbar px-4 md:px-6'>
+				<div className='flex flex-col space-y-4'>
 					{chatHistory.length === 0 ? (
 						<Fragment>
 							<Welcome />
-							<div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4'>
+							<div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3'>
 								{samplePhrases.map(phrase => (
 									<button
 										key={phrase}
@@ -209,7 +290,7 @@ const ChatBot = ({ setIsSpeaking }) => {
 												addMessage('assistant', 'Wait, I am looking for your query!');
 											}, 1100);
 										}}
-										className='bg-gray-100 border-gray-300 border-2 rounded-lg p-4'>
+										className='bg-gray-100 border-gray-300 border-2 rounded-md p-2 text-sm'>
 										{phrase}
 									</button>
 								))}
@@ -218,7 +299,7 @@ const ChatBot = ({ setIsSpeaking }) => {
 					) : (
 						chatHistory.map((chat, i) => (
 							<div key={i} className={`flex ${chat.role === 'user' ? 'justify-end' : 'justify-start'} w-full`}>
-								<div className={`rounded-2xl px-5 py-3 shadow-md max-w-[70%] text-base font-medium ${chat.role === 'user' ? 'bg-blue-700 text-white' : 'bg-gray-800 text-gray-100'} mb-2`}>
+													<div className={`rounded-2xl px-4 py-3 shadow-sm max-w-[70%] text-sm font-medium ${chat.role === 'user' ? 'bg-blue-700 text-white' : 'bg-gray-800 text-gray-100'} mb-3`}>
 									{chat.content}
 								</div>
 							</div>
@@ -228,94 +309,80 @@ const ChatBot = ({ setIsSpeaking }) => {
 					{/* Remove currentChat and currentMessage usage, or define them safely */}
 				</div>
 
-				<div ref={bottomRef} />
-			</section>
-			 <div className='chat-box-input-field flex flex-row items-end justify-between gap-4 rounded-xl p-4 bg-gray-800 shadow-md border border-gray-700 mt-4'>
+					<div ref={bottomRef} />
+				</section>
+
+				{/* input bar fixed to bottom of the chat card */}
+				<div className='chat-box-input-field absolute left-6 right-6 bottom-6 z-20 mx-auto max-w-[920px] flex flex-row items-center justify-between gap-4 rounded-2xl p-4 bg-gray-800/90 backdrop-blur-sm shadow-md border border-gray-700'>
 				<div className='flex flex-row items-center gap-3'>
 					<button onClick={handleaudio} className='text-3xl text-gray-300 hover:text-blue-400'>
 						{audio ? <HiOutlineSpeakerWave /> : <HiOutlineSpeakerXMark />}
 					</button>
-					<div className='w-32'><SelectLang setLang={setLang} /></div>
+					<div className='w-32 text-sm'><SelectLang setLang={setLang} /></div>
 					<button
 						onClick={handleListen}
-						className={listening ? `bg-blue-600 text-white py-2 px-3 rounded-full animate-pulse border-4 border-blue-700` : `bg-gray-700 text-gray-200 py-2 px-3 rounded-full border-2 border-gray-600`}
+						className={listening ? `bg-blue-600 text-white py-2 px-3 rounded-full animate-pulse border-2 border-blue-700 text-sm` : `bg-gray-700 text-gray-200 py-2 px-3 rounded-full border border-gray-600 text-sm`}
 						disabled={listening}
 						title={listening ? 'Listening...' : 'Start voice input'}
 					>
 						<BsMic className='text-2xl' />
 					</button>
 					{listening && (
-						<span className='ml-2 text-blue-400 font-bold animate-pulse'>Listening...</span>
+						<span className='ml-1 text-blue-400 font-semibold text-sm animate-pulse'>Listening...</span>
 					)}
 					{listening && (
 						<button
 							onClick={handleStop}
-							className='bg-red-600 text-white py-2 px-3 rounded-full font-bold border-2 border-red-700 ml-2'
+							className='bg-red-600 text-white py-1 px-2 rounded-full font-semibold border border-red-700 ml-1 text-sm'
 						>
 							Stop
 						</button>
 					)}
-					{/* Show Retry only if user has tried and failed, not on initial render */}
 					{!listening && transcript && (
 						<button
 							onClick={handleListen}
-							className='bg-yellow-400 text-black py-2 px-3 rounded-full font-bold border-2 border-yellow-600 ml-2'
+							className='bg-yellow-400 text-black py-1 px-2 rounded-full font-semibold border border-yellow-600 ml-1 text-sm'
 							title='Retry voice input'
 						>
 							Retry
 						</button>
 					)}
-					{/* Mic loudness bar */}
 					{listening && (
-						<div className='w-32 h-3 bg-gray-200 rounded mt-2 relative'>
+						<div className='w-28 h-2 bg-gray-200 rounded mt-2 relative'>
 							<div
-								className='h-3 rounded bg-green-500 transition-all duration-100'
+								className='h-2 rounded bg-green-500 transition-all duration-100'
 								style={{ width: `${Math.min(100, micLevel)}%` }}
 							/>
 						</div>
 					)}
 				</div>
-				<div className='flex flex-row flex-wrap items-center gap-3 flex-grow' style={{ maxWidth: '600px' }}>
+				<div className='flex flex-row flex-wrap items-center gap-3 flex-grow' style={{ maxWidth: '720px' }}>
 					<input
 						type='text'
 						ref={inputRef}
-						className='flex-grow rounded-lg p-4 text-lg min-h-[48px] border-2 border-gray-700 focus:border-blue-400 focus:ring-2 focus:ring-blue-900 transition-all duration-200 shadow-sm bg-gray-900 text-gray-100 placeholder-gray-400'
-						style={{ minWidth: '0', maxWidth: '350px' }}
+				className='flex-grow chat-input rounded-md px-4 py-3 text-base min-h-[48px] border border-gray-700 focus:border-blue-400 focus:ring-1 focus:ring-blue-900 transition-all duration-150 shadow-sm bg-gray-900 text-gray-100 placeholder-gray-400'
+						style={{ minWidth: '0', maxWidth: '420px' }}
 						placeholder={state === 'idle' ? 'Type your message...' : '...'}
 						value={message}
 						onChange={handleInputChange}
+						onKeyDown={(e) => {
+							// Send on Enter, but allow Shift+Enter for new lines
+							if (e.key === 'Enter' && !e.shiftKey) {
+								e.preventDefault();
+								void sendMessage();
+							}
+						}}
 						onBlur={handleInputBlur}
 						disabled={state !== 'idle'}
 					/>
 					<button
-						className='bg-blue-700 hover:bg-blue-800 text-white text-base font-bold py-3 px-7 rounded-lg shadow transition-all duration-200 disabled:bg-gray-700 disabled:cursor-not-allowed'
+						className='bg-blue-700 hover:bg-blue-800 text-white text-base font-semibold py-3 px-6 rounded-md shadow-md transition-all duration-150 disabled:bg-gray-700 disabled:cursor-not-allowed'
 						disabled={message && state === 'idle' ? false : true}
-						onClick={async () => {
-							SpeechRecognition.stopListening();
-							resetTranscript();
-							setIsTyping(false);
-							if (message) {
-								addMessage('user', message);
-								setState('waiting');
-								SpeechRecognition.abortListening();
-								let resp = await getResponse({ prompt: message }, '/llama-chat');
-								setMessage('');
-								resetTranscript();
-								setState('idle');
-								if (resp && resp.data && resp.data.result) {
-									addMessage('assistant', resp.data.result);
-									if (audio) {
-										playTTS(resp.data.result);
-										if (setIsSpeaking) setIsSpeaking(true);
-									} else {
-										if (setIsSpeaking) setIsSpeaking(false);
-									}
-								}
-							}
-						}}
+						onClick={() => { void sendMessage(); }}
 					>
 						Send
 					</button>
+				</div>
 				</div>
 			</div>
 		</main>
@@ -323,3 +390,7 @@ const ChatBot = ({ setIsSpeaking }) => {
 };
 
 export default ChatBot;
+
+ChatBot.propTypes = {
+	setIsSpeaking: PropTypes.func,
+};

@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useState } from 'react';
+import { createContext, useContext, useState } from 'react';
 import { chatHistory as messages } from '../data';
+import PropTypes from 'prop-types';
 
 const MessageContext = createContext({
 	chatHistory: []
@@ -19,3 +20,7 @@ const MessageProvider = ({ children }) => {
 export const useMessageContext = () => useContext(MessageContext);
 
 export default MessageProvider;
+
+MessageProvider.propTypes = {
+	children: PropTypes.node,
+};

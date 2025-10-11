@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
+import PropTypes from 'prop-types';
 
 const UserDetailsModal = ({ isOpen, onClose, onSave }) => {
   const [name, setName] = useState('');
@@ -58,3 +59,9 @@ const UserDetailsModal = ({ isOpen, onClose, onSave }) => {
 };
 
 export default UserDetailsModal;
+
+UserDetailsModal.propTypes = {
+  isOpen: PropTypes.bool.isRequired,
+  onClose: PropTypes.func.isRequired,
+  onSave: PropTypes.func.isRequired,
+};

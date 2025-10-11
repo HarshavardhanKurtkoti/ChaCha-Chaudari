@@ -12,9 +12,18 @@ module.exports = {
   settings: { react: { version: '18.2' } },
   plugins: ['react-refresh'],
   rules: {
-    'react-refresh/only-export-components': [
-      'warn',
-      { allowConstantExport: true },
-    ],
+    // Disable fast-refresh export-only rule to allow contexts/util exports without warnings
+    'react-refresh/only-export-components': 'off',
   },
+  overrides: [
+    {
+      files: ['**/*.test.*', '**/__tests__/**/*.*'],
+      env: {
+        jest: true,
+      },
+      globals: {
+        vi: 'readonly',
+      },
+    },
+  ],
 }

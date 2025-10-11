@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import Select from 'react-select';
+import PropTypes from 'prop-types';
 
 /**
  * English (India) en-IN
@@ -31,3 +32,7 @@ const SelectLang = ({ setLang }) => {
 };
 
 export default SelectLang;
+
+SelectLang.propTypes = {
+	setLang: PropTypes.func.isRequired,
+};

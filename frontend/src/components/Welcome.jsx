@@ -1,14 +1,13 @@
-import React from 'react';
 const ChachaChaudhary = '/assets/images/chacha-chaudhary.png';
 
 const Welcome = () => (
-	<div className='bg-white border-gray-200 border-2 rounded-lg px-8 py-5 mr-20 w-full my-3'>
+	<div className='bg-white border-gray-200 border-2 rounded-md px-4 py-3 mr-8 w-full my-3'>
 		<div className='flex flex-row justify-start items-center'>
-			<img className='w-20 h-20 rounded-full border-gray-400 mr-2' src={ChachaChaudhary} alt='Chacha Chaudhary' />
-			<h1 className='text-2xl font-bold mb-2'> Hello, I am Chacha Chaudhary Bot</h1>
+			<img className='w-14 h-14 rounded-full border-gray-400 mr-3' src={ChachaChaudhary} alt='Chacha Chaudhary' />
+			<h1 className='text-lg font-semibold mb-1'> Hello, I am Chacha Chaudhary Bot</h1>
 		</div>
-		<p>
-			I am help you out to get a better understanding of <span className='text-lg font-semibold underline underline-offset-2'>Ganga Ghat</span>. I am also available to answer your questions related to this place. Hello, I am Chacha Chaudhary Bot
+		<p className='text-sm'>
+			I am here to help you get a better understanding of <span className='text-sm font-semibold underline underline-offset-2'>Ganga Ghat</span>. I am also available to answer your questions related to this place.
 		</p>
 	</div>
 );

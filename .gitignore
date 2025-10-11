@@ -160,4 +160,6 @@ reports/
 ############################
 !frontend/.env.example
 !backend/.env.example
+backend/.env
 
+backend/__pycache__

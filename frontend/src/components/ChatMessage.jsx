@@ -1,7 +1,7 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import PropTypes from 'prop-types';
 const user = '/assets/images/user.png';
-const ChachaChaudhary = '/assets/images/chacha-chaudhary.png';
 
 // This lets us style any markdown tables that are rendered
 const CustomTable = ({ children, ...props }) => {
@@ -14,6 +14,11 @@ const CustomTable = ({ children, ...props }) => {
 	);
 };
 
+CustomTable.propTypes = {
+  children: PropTypes.node,
+};
+
+
 const ChatMessage = ({ message }) =>
 	message.role === 'user' ? (
 		<div className='flex items-end justify-end'>
@@ -24,17 +29,24 @@ const ChatMessage = ({ message }) =>
 		</div>
 	) : (
 		<div className='flex items-end'>
-			{/* <img className='w-20 h-20 rounded-full border-gray-400 mr-2' src={ChachaChaudhary} alt='Chacha Chaudhary' /> */}
 			<div className='bg-gray-100 border-gray-300 border-2 rounded-lg p-2 mr-20 max-w-3xl'>
 				<ReactMarkdown
-					children={message.content}
 					remarkPlugins={[remarkGfm]}
 					components={{
 						table: CustomTable
 					}}
-				/>
+				>
+					{message.content}
+				</ReactMarkdown>
 			</div>
 		</div>
 	);
 
 export default ChatMessage;
+
+ChatMessage.propTypes = {
+  message: PropTypes.shape({
+    role: PropTypes.string.isRequired,
+    content: PropTypes.oneOfType([PropTypes.string, PropTypes.node]).isRequired,
+  }).isRequired,
+};

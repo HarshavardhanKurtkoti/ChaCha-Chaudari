@@ -1,6 +1,7 @@
-import React, { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import greetImg from '../assets/chacha-cahaudhary/chacha.webp';
 import LoginSignupModal from '../components/LoginSignupModal';
+import PropTypes from 'prop-types';
 
 function GreetingPopup({ onClose }) {
     return (
@@ -29,6 +30,7 @@ function GreetingPopup({ onClose }) {
         </div>
     );
 }
+GreetingPopup.propTypes = { onClose: PropTypes.func.isRequired };
 
 function Greeting() {
     const [showPopup, setShowPopup] = useState(true);
