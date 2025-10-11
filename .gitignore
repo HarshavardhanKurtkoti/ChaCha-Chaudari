@@ -126,8 +126,6 @@ tensorboard/
 ############################
 *.blend1
 *.blend@
-docs/diagrams/*.png
-docs/diagrams/*.svg
 
 ############################
 # Coverage / Reports
@@ -156,13 +154,6 @@ reports/
 *.bz2
 *.xz
 *.zst
-.npmrc
-.python-version
-.tool-versions
-.direnv/
-.ruff_cache/
-.pylint.d/
-__pypackages__/
 
 ############################
 # Keep examples of configs

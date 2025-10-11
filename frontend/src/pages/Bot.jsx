@@ -34,7 +34,7 @@ const Bot = () => {
 				<div className="flex flex-col items-center md:items-start w-full">
 					   <div
 						   className={`transition-transform duration-700 ease-in-out translate-x-0 relative`}
-						   style={{ width: '500px', height: '600px', maxWidth: '500px', margin: '0 auto', borderRadius: '24px', overflow: 'hidden', boxShadow: '0 8px 32px rgba(0,0,0,0.15)' }}
+						   style={{ width: '500px', height: '600px', maxWidth: '500px', margin: '0 auto', borderRadius: '24px', overflow: 'hidden' }}
 					   >
 						<Canvas camera={{ position: [0, 2, 8], fov: 40 }} style={{ width: '100%', height: '100%' }}>
 							<ambientLight intensity={1} />
