@@ -8,6 +8,10 @@ import { Suspense } from 'react';
 import PropTypes from 'prop-types';
 
 function ChachaModel({ isSpeaking }) {
+	// Defer model preload until the component mounts so importing the module
+	// doesn't trigger a network request during initial page load.
+	// useGLTF will load when called during render; additionally we trigger
+	// a preload in an effect when the Bot mounts.
 	const gltf = useGLTF('/assets/chacha-cahaudhary/ChaCha.glb');
 	// Animate scale based on chat open state
 	// Make the model smaller and always centered
@@ -20,7 +24,8 @@ function ChachaModel({ isSpeaking }) {
 		</group>
 	);
 }
-useGLTF.preload('/assets/chacha-cahaudhary/ChaCha.glb');
+
+// Remove global preload: preload only when Bot mounts to avoid early network usage.
 
 const Bot = () => {
 	const [isSpeaking] = useState(false);

@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import React, { Suspense } from 'react';
 const ChatBot = React.lazy(() => import('./ChatBot'));
 import CarouselComp from '../components/CarouselComp';
 import GreetingPopup from './Greeting';
-import Bot from './Bot';
+// Defer loading the 3D Bot (three.js + model) until it's actually rendered
+const Bot = React.lazy(() => import('./Bot'));
 
 const Home = () => {
   // greeting: show once per browser session (unless user opened #about)
@@ -16,14 +17,35 @@ const Home = () => {
 
   const [showGreeting, setShowGreeting] = useState(initialGreeting);
   const [showChat, setShowChat] = useState(false);
+  // Only actually mount the heavy 3D Bot component after user interaction or explicit chat open
+  const [loadBot, setLoadBot] = useState(false);
   const [vw, setVw] = useState(() => (typeof window !== 'undefined' ? window.innerWidth : 1400));
   const isNarrow = vw < 1280;
+  const botContainerRef = useRef(null);
 
   useEffect(() => {
     const onResize = () => setVw(window.innerWidth);
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
+
+  // Auto-load the 3D Bot when its container comes into view
+  useEffect(() => {
+    if (loadBot) return; // already loaded
+    const el = botContainerRef.current;
+    if (!el || typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver((entries) => {
+      for (const e of entries) {
+        if (e.isIntersecting) {
+          setLoadBot(true);
+          io.disconnect();
+          break;
+        }
+      }
+    }, { root: null, threshold: 0.25 });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [loadBot]);
 
   useEffect(() => {
     if (!showGreeting) return;
@@ -82,12 +104,21 @@ const Home = () => {
           </div>
 
           {/* Right: Big single card */}
-          <div style={{ ...rightColumnStyle, flex: isNarrow ? '1 1 100%' : '0 0 48%' }} className="flex items-center justify-center px-4">
+          <div style={{ ...rightColumnStyle, flex: isNarrow ? '1 1 100%' : '0 0 48%' }} className="flex items-center justify-center px-4" ref={botContainerRef}>
             <div className="bg-white rounded-3xl border p-6 w-full flex items-center justify-center" style={{ height: isNarrow ? '320px' : '640px' }}>
               <div style={{ width: isNarrow ? '320px' : '500px', height: isNarrow ? '320px' : '620px', borderRadius: '20px', overflow: 'hidden' }}>
-                <Suspense fallback={<div className="flex items-center justify-center h-full text-gray-400">Loading model…</div>}>
-                  <Bot />
-                </Suspense>
+                {/* Show lightweight placeholder and load the heavy 3D component only when user requests it */}
+                {!loadBot ? (
+                  <div className="w-full h-full flex flex-col items-center justify-center gap-4 bg-white">
+                    <div className="text-center text-gray-700">3D character not loaded</div>
+                    <button onClick={() => setLoadBot(true)} className="px-4 py-2 rounded bg-blue-600 text-white">Load 3D model</button>
+                    <div className='text-xs text-gray-400'>Models are loaded on demand to speed up page load.</div>
+                  </div>
+                ) : (
+                  <Suspense fallback={<div className="flex items-center justify-center h-full text-gray-400">Loading model</div>}>
+                    <Bot />
+                  </Suspense>
+                )}
               </div>
             </div>
           </div>

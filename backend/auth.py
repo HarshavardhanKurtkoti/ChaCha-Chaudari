@@ -25,9 +25,14 @@ ADMIN_CODE = os.getenv('ADMIN_CODE', 'letmein-admin')
 TOKEN_EXP_HOURS = int(os.getenv('TOKEN_EXP_HOURS', '24'))
 
 
-def create_token(email: str):
+def create_token(user: dict):
+    """Create JWT including basic user claims for personalization.
+    Expects dict with at least 'email'; optional 'name' and 'age'.
+    """
     payload = {
-        'email': email,
+        'email': user.get('email'),
+        'name': user.get('name'),
+        'age': user.get('age'),
         'exp': datetime.now(tz=timezone.utc) + timedelta(hours=TOKEN_EXP_HOURS)
     }
     return jwt.encode(payload, SECRET_KEY, algorithm='HS256')
@@ -74,6 +79,8 @@ def register():
     email = data.get('email', '').lower().strip()
     password = data.get('password', '')
     admin_code = data.get('admin_code')
+    # Optional age for personalization
+    age = data.get('age')
 
     if not name or not email or not password:
         return jsonify({'error': 'Missing fields'}), 400
@@ -86,11 +93,12 @@ def register():
         'email': email,
         'password': generate_password_hash(password),
         'is_admin': admin_code == ADMIN_CODE,
-        'created': datetime.utcnow().isoformat() + 'Z'
+        'created': datetime.utcnow().isoformat() + 'Z',
+        'age': int(age) if isinstance(age, (int, float, str)) and str(age).isdigit() else None,
     }
     users_collection.insert_one(user_doc)
 
-    token = create_token(email)
+    token = create_token(user_doc)
     user_doc.pop('password')
     user_doc['token'] = token
     return jsonify(user_doc), 201
@@ -108,10 +116,80 @@ def login():
     if not user or not check_password_hash(user['password'], password):
         return jsonify({'error': 'Invalid credentials'}), 401
 
-    token = create_token(email)
     user_out = {k: v for k, v in user.items() if k not in ('_id', 'password')}
+    token = create_token(user_out)
     user_out['token'] = token
     return jsonify(user_out)
+
+
+@auth_bp.route('/google-login', methods=['POST'])
+def google_login():
+    """Accepts {googleToken} (Google ID token). Minimal decode without signature verification.
+    In production, verify signature with Google's certs.
+    Upserts user and returns JWT token.
+    """
+    data = request.get_json() or {}
+    google_token = data.get('googleToken')
+    if not google_token:
+        return jsonify({'error': 'googleToken required'}), 400
+    try:
+        payload = jwt.decode(google_token, options={"verify_signature": False})
+        email = (payload.get('email') or '').lower().strip()
+        name = (payload.get('name') or payload.get('given_name') or email.split('@')[0] or 'User').strip()
+        if not email:
+            return jsonify({'error': 'Email not present in token'}), 400
+        user = users_collection.find_one({'email': email})
+        if not user:
+            user = {
+                'name': name,
+                'email': email,
+                'is_admin': False,
+                'created': datetime.utcnow().isoformat() + 'Z',
+                'age': None,
+                'provider': 'google',
+            }
+            users_collection.insert_one(user)
+        else:
+            # Ensure name is populated
+            if not user.get('name') and name:
+                users_collection.update_one({'email': email}, {'$set': {'name': name}})
+                user['name'] = name
+        user_out = {k: v for k, v in user.items() if k != '_id'}
+        token = create_token(user_out)
+        user_out['token'] = token
+        return jsonify(user_out)
+    except Exception as e:
+        return jsonify({'error': 'Google token decode failed', 'details': str(e)}), 400
+
+
+@auth_bp.route('/google-signup', methods=['POST'])
+def google_signup():
+    # Alias to google_login for now
+    return google_login()
+
+
+@auth_bp.route('/update_profile', methods=['POST'])
+@token_required
+def update_profile():
+    data = request.get_json() or {}
+    fields = {}
+    name = data.get('name')
+    age = data.get('age')
+    if name:
+        fields['name'] = name.strip()
+    if age is not None:
+        try:
+            fields['age'] = int(age)
+        except Exception:
+            return jsonify({'error': 'age must be integer'}), 400
+    if not fields:
+        return jsonify({'error': 'no fields to update'}), 400
+    email = request.user['email']  # type: ignore
+    users_collection.update_one({'email': email}, {'$set': fields})
+    user = users_collection.find_one({'email': email}, {'_id': 0, 'password': 0})
+    # issue a fresh token carrying updated claims
+    token = create_token(user)
+    return jsonify({'updated': True, 'user': user, 'token': token})
 
 
 @auth_bp.route('/me', methods=['GET'])

@@ -16,7 +16,12 @@ import warnings
 import sys
 import hashlib
 import numpy as np
-import faiss
+try:
+    import faiss  # type: ignore
+    _FAISS_OK = True
+except Exception:
+    faiss = None  # type: ignore
+    _FAISS_OK = False
 
 # Embedding dimensionality used throughout this module
 EMBED_DIM = 384
@@ -75,14 +80,19 @@ def hash_embed(text: str, dim: int = EMBED_DIM) -> np.ndarray:
 
 def build_index(chunks_list, dim: int = EMBED_DIM):
     if not chunks_list:
-        # Create an empty index with correct dimensionality
-        index_inst = faiss.IndexFlatL2(dim)
+        if _FAISS_OK:
+            index_inst = faiss.IndexFlatL2(dim)
+        else:
+            index_inst = None
         empty_mat = np.zeros((0, dim), dtype=np.float32)
         return index_inst, empty_mat
     emb_list = [hash_embed(c, dim=dim) for c in chunks_list]
     mat = np.vstack(emb_list)
-    index_inst = faiss.IndexFlatL2(mat.shape[1])
-    index_inst.add(mat)
+    if _FAISS_OK:
+        index_inst = faiss.IndexFlatL2(mat.shape[1])
+        index_inst.add(mat)
+    else:
+        index_inst = None
     return index_inst, mat
 
 
@@ -118,10 +128,19 @@ embedder = SimpleEmbedder()
 
 def query(text: str, top_k: int = 3):
     q = hash_embed(text)
-    D, I = index.search(np.expand_dims(q, 0), top_k)
     results = []
-    for dist, idx in zip(D[0], I[0]):
-        if idx < 0 or idx >= len(chunks):
-            continue
-        results.append({"chunk": chunks[idx], "distance": float(dist)})
+    if index is not None and _FAISS_OK:
+        D, I = index.search(np.expand_dims(q, 0), top_k)
+        for dist, idx in zip(D[0], I[0]):
+            if idx < 0 or idx >= len(chunks):
+                continue
+            results.append({"chunk": chunks[idx], "distance": float(dist)})
+        return results
+    # Fallback: simple cosine similarity over embeddings
+    if embeddings is None or embeddings.shape[0] == 0:
+        return []
+    sims = embeddings @ q  # since vectors are L2-normalized, dot approximates cosine
+    top_idx = np.argsort(-sims)[:top_k]
+    for idx in top_idx:
+        results.append({"chunk": chunks[int(idx)], "distance": float(1.0 - sims[int(idx)])})
     return results

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { GoogleOAuthProvider, GoogleLogin } from '@react-oauth/google';
 import PropTypes from 'prop-types';
 import { decodeJwt, passwordStrength } from 'utils/jwt';
+import AgePromptModal from './AgePromptModal';
 
 const LoginSignupModal = ({ isOpen, onClose, onAuthenticate }) => {
   const [isSignup, setIsSignup] = useState(true);
@@ -9,6 +10,8 @@ const LoginSignupModal = ({ isOpen, onClose, onAuthenticate }) => {
   const [password, setPassword] = useState('');
   const [age, setAge] = useState('');
   const [name, setName] = useState('');
+  const [showAgeModal, setShowAgeModal] = useState(false);
+  const [pendingProfile, setPendingProfile] = useState(null);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -35,16 +38,9 @@ const LoginSignupModal = ({ isOpen, onClose, onAuthenticate }) => {
     try {
       const googleToken = credentialResponse.credential;
 
-      // Close the popup immediately upon successful Google OAuth response
-      // to ensure a snappy UX as requested.
-      onClose();
-      window.dispatchEvent(
-        new CustomEvent('auth-success', { detail: { provider: 'google' } })
-      );
-
       // Decode profile info from ID token and persist locally for UI personalization
       const payload = decodeJwt(googleToken) || {};
-      const profile = {
+      let profile = {
         name: payload.name || payload.given_name || payload.email?.split('@')[0] || 'User',
         email: payload.email || '',
         picture: payload.picture || null,
@@ -54,10 +50,16 @@ const LoginSignupModal = ({ isOpen, onClose, onAuthenticate }) => {
         updatedAt: Date.now(),
       };
       localStorage.setItem('userProfile', JSON.stringify(profile));
-  // notify app that profile is available
-  window.dispatchEvent(new CustomEvent('profile-updated', { detail: profile }));
-  // mark user as logged in for UI purposes even if backend token absent
-  window.dispatchEvent(new CustomEvent('user-logged-in', { detail: { provider: 'google' } }));
+
+      // notify app that profile is available
+      window.dispatchEvent(new CustomEvent('profile-updated', { detail: profile }));
+      // mark user as logged in for UI purposes even if backend token absent
+      window.dispatchEvent(new CustomEvent('user-logged-in', { detail: { provider: 'google' } }));
+      // Prefill the auth form inputs (editable by the user)
+      try {
+        if (profile.name) setName(profile.name);
+        if (profile.email) setEmail(profile.email);
+      } catch { /* ignore */ }
 
       // Proceed with backend login/signup in the background (optional)
       // If your backend doesn’t yet implement these endpoints, this will
@@ -73,10 +75,28 @@ const LoginSignupModal = ({ isOpen, onClose, onAuthenticate }) => {
         localStorage.setItem('userToken', data.token);
         // notify app that user is logged in
         window.dispatchEvent(new CustomEvent('user-logged-in', { detail: { token: data.token } }));
+
+        // If backend JWT already includes age/name, update local profile and skip modal
+        const jwtPayload = decodeJwt(data.token) || {};
+        const claimedAge = typeof jwtPayload.age === 'number' ? jwtPayload.age : null;
+        const claimedName = jwtPayload.name || profile.name;
+        if (claimedAge != null) {
+          const merged = { ...profile, name: claimedName, age: claimedAge, updatedAt: Date.now() };
+          localStorage.setItem('userProfile', JSON.stringify(merged));
+          window.dispatchEvent(new CustomEvent('profile-updated', { detail: merged }));
+          // Close the auth modal since we're fully set up
+          onClose();
+          return;
+        }
       } else {
         // Non-blocking notice; the popup is already closed.
         console.warn('Google auth backend call did not succeed:', data);
       }
+
+      // Ask for both (name+age) only if age is still missing
+      setPendingProfile(profile);
+      setShowAgeModal(true);
+
     } catch (err) {
       console.error('Google auth error:', err);
     }
@@ -181,6 +201,48 @@ const LoginSignupModal = ({ isOpen, onClose, onAuthenticate }) => {
           </div>
         </div>
       </div>
+
+      {/* Age/Name prompt modal for Google auth flow */}
+      <AgePromptModal
+        isOpen={showAgeModal}
+        defaultName={pendingProfile?.name || ''}
+        defaultAvatar={pendingProfile?.picture || ''}
+        onSave={async ({ name: newName, age: newAge }) => {
+          try {
+            // Merge and persist locally
+            const merged = { ...(pendingProfile || {}), name: newName, age: newAge, updatedAt: Date.now() };
+            localStorage.setItem('userProfile', JSON.stringify(merged));
+            window.dispatchEvent(new CustomEvent('profile-updated', { detail: merged }));
+
+            // Persist to backend if token available and refresh JWT
+            const userToken = localStorage.getItem('userToken');
+            if (userToken) {
+              const upd = await fetch('/auth/update_profile', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${userToken}` },
+                body: JSON.stringify({ age: newAge, name: newName }),
+              });
+              const updData = await upd.json().catch(() => ({}));
+              if (upd.ok && updData?.token) {
+                localStorage.setItem('userToken', updData.token);
+                window.dispatchEvent(new CustomEvent('user-logged-in', { detail: { token: updData.token } }));
+              }
+            }
+          } catch (e) {
+            console.warn('Failed to persist profile:', e);
+          } finally {
+            setShowAgeModal(false);
+            setPendingProfile(null);
+            onClose();
+          }
+        }}
+        onCancel={() => {
+          setShowAgeModal(false);
+          setPendingProfile(null);
+          // Close the auth modal; user can continue without age if they choose
+          onClose();
+        }}
+      />
     </GoogleOAuthProvider>
   );
 };

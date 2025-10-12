@@ -16,7 +16,7 @@ function GreetingPopup({ onClose }) {
                     &times;
                 </button>
                 <div className="w-36 h-36 sm:w-48 sm:h-48 mb-6 rounded-full shadow-lg border-4 border-blue-300 bg-white overflow-hidden flex items-center justify-center">
-                    <img src={greetImg} alt="Chacha Chaudhary" className="w-[115%] h-[108%] object-cover" />
+                    <img src={greetImg} alt="Chacha Chaudhary" loading="lazy" className="w-[115%] h-[108%] object-cover" />
                 </div>
                 <h1 className="text-2xl sm:text-3xl font-extrabold text-blue-900 mb-6 text-center">Welcome to Namami Gange Interactive Experience</h1>
                 <p className="text-gray-600 text-sm sm:text-base mb-6 text-center">To get started:</p>

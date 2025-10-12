@@ -154,21 +154,23 @@ const ChatBot = ({ setIsSpeaking }) => {
 	// const endpoint = 'http://localhost:5000/llama-chat';
 
 	const getResponse = async (userdata, endpoint) => {
-		try {
-			let ageGroup = null;
 			try {
-				const p = JSON.parse(localStorage.getItem('userProfile') || 'null');
-				const age = p?.age;
-				if (typeof age === 'number') {
-					ageGroup = age < 10 ? 'kid' : age < 16 ? 'teen' : 'adult';
-				}
-			} catch { /* ignore */ }
-			const userToken = localStorage.getItem('userToken');
-			const response = await api.post(endpoint, { ...userdata, ageGroup }, {
-				headers: {
-					'Authorization': userToken || ''
-				}
-			});
+				let ageGroup = null;
+				let name = undefined;
+				try {
+					const p = JSON.parse(localStorage.getItem('userProfile') || 'null');
+					const age = p?.age;
+					name = p?.name;
+					if (typeof age === 'number') {
+						ageGroup = age < 10 ? 'kid' : age < 16 ? 'teen' : 'adult';
+					}
+				} catch { /* ignore */ }
+				const userToken = localStorage.getItem('userToken');
+				const response = await api.post(endpoint, { ...userdata, ageGroup, name }, {
+					headers: {
+						'Authorization': userToken ? `Bearer ${userToken}` : ''
+					}
+				});
 			console.log('response', response);
 			setState('thinking');
 			return response;

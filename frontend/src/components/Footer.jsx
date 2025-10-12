@@ -32,6 +32,7 @@ const Footer = ({ isDark = false }) => {
               <img
                 src="https://nmcg.nic.in/images/nmcgGif.gif"
                 alt="NMCG"
+                loading="lazy"
                 className="h-8 w-8"
               />
               <span className="font-headline text-xl font-bold tracking-tight">

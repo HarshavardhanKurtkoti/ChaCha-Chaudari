@@ -6,6 +6,7 @@ import jsconfigPaths from 'vite-jsconfig-paths';
 export default defineConfig({
 	plugins: [react(), jsconfigPaths()],
 	build: {
+		sourcemap: true,
 		rollupOptions: {
 			output: {
 				manualChunks: {

@@ -37,6 +37,7 @@ const CarouselComp = () => {
       <img
         src={images[current]}
         alt={`Ganga ${current + 1}`}
+        loading="lazy"
         className="rounded-2xl object-cover w-full h-full shadow-lg"
       />
       <button

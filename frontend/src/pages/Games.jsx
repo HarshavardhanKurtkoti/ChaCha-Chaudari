@@ -374,8 +374,8 @@ export default function Games() {
   return (
     <motion.div initial="initial" animate="animate" exit="exit" variants={page} className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-700 text-gray-100">
       <div className="max-w-6xl mx-auto px-4 py-6 md:p-6">
-        <motion.header variants={card} className="rounded-2xl bg-gradient-to-br from-gray-800/70 to-gray-900/70 shadow-lg px-4 py-5 md:p-6 flex items-center gap-4 transform-gpu backdrop-blur-sm border border-gray-700">
-          <img src="https://nmcg.nic.in/images/nmcgGif.gif" alt="NMCG" className="w-14 h-14" />
+          <motion.header variants={card} className="rounded-2xl bg-gradient-to-br from-gray-800/70 to-gray-900/70 shadow-lg px-4 py-5 md:p-6 flex items-center gap-4 transform-gpu backdrop-blur-sm border border-gray-700">
+          <img src="https://nmcg.nic.in/images/nmcgGif.gif" alt="NMCG" loading="lazy" className="w-14 h-14" />
           <div>
             <h1 className="text-2xl font-extrabold text-white">River Guardians: Play & Learn</h1>
             <p className="text-gray-300 text-sm">Have fun while learning how to protect Maa Ganga. Earn points and unlock badges!</p>

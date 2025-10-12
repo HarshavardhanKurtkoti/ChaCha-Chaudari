@@ -98,6 +98,7 @@ const NavBar = ({ isDark = false }) => {
 						className="w-8 h-8 cursor-pointer transition-transform duration-300"
 						src="https://nmcg.nic.in/images/nmcgGif.gif"
 						alt="NMCG"
+						loading="lazy"
 						onClick={handleLogoClick}
 						style={{ filter: isDark ? 'brightness(0) invert(1)' : 'none' }}
 					/>
@@ -138,7 +139,7 @@ const NavBar = ({ isDark = false }) => {
 																										{profile?.name ? 'My Account' : 'Account'}
 																									</Link>
 																									{profile?.picture && (
-																										<img src={profile.picture} alt={profile.name || 'Profile'} className="w-8 h-8 rounded-full border border-gray-700" />
+																																						<img loading="lazy" src={profile.picture} alt={profile.name || 'Profile'} className="w-8 h-8 rounded-full border border-gray-700" />
 																									)}
 																								</div>
 											</div>
