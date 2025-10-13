@@ -26,21 +26,11 @@ export default function Navigation() {
             // Calculate distance to Ganga Aarti
             setDistance(haversineDistance(latitude, longitude, GANGA_AARTI_LAT, GANGA_AARTI_LON));
             const userToken = localStorage.getItem('userToken');
-            axios
-                .post(
-                    'http://localhost:1212/updateLocation',
-                    {
-                        lat: latitude,
-                        lon: longitude,
-                    },
-                    {
-                        headers: {
-                            Authorization: userToken || '',
-                        },
-                    }
-                )
-                .then(() => {})
-                .catch(() => {});
+            try {
+                const apiBase = import.meta?.env?.DEV ? '/api' : 'http://localhost:1212';
+                const headers = userToken ? { Authorization: `Bearer ${userToken}` } : {};
+                axios.post(`${apiBase}/updateLocation`, { lat: latitude, lon: longitude }, { headers }).catch(() => {});
+            } catch (e) { /* ignore */ }
             // Default map center to user location
             setMapCenter({ lat: latitude, lon: longitude });
         }

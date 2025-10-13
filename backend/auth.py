@@ -171,25 +171,37 @@ def google_signup():
 @auth_bp.route('/update_profile', methods=['POST'])
 @token_required
 def update_profile():
-    data = request.get_json() or {}
-    fields = {}
-    name = data.get('name')
-    age = data.get('age')
-    if name:
-        fields['name'] = name.strip()
-    if age is not None:
-        try:
-            fields['age'] = int(age)
-        except Exception:
-            return jsonify({'error': 'age must be integer'}), 400
-    if not fields:
-        return jsonify({'error': 'no fields to update'}), 400
-    email = request.user['email']  # type: ignore
-    users_collection.update_one({'email': email}, {'$set': fields})
-    user = users_collection.find_one({'email': email}, {'_id': 0, 'password': 0})
-    # issue a fresh token carrying updated claims
-    token = create_token(user)
-    return jsonify({'updated': True, 'user': user, 'token': token})
+    try:
+        data = request.get_json() or {}
+        fields = {}
+        name = data.get('name')
+        age = data.get('age')
+        if name:
+            fields['name'] = str(name).strip()
+        if age is not None:
+            try:
+                fields['age'] = int(age)
+            except Exception:
+                return jsonify({'error': 'age must be integer'}), 400
+        if not fields:
+            return jsonify({'error': 'no fields to update'}), 400
+        email = request.user.get('email')  # type: ignore
+        if not email:
+            return jsonify({'error': 'authenticated user missing email'}), 400
+        res = users_collection.update_one({'email': email}, {'$set': fields})
+        if getattr(res, 'matched_count', None) == 0 and getattr(res, 'modified_count', None) == 0:
+            # In in-memory mode, update_one returns no stats; try another read
+            user = users_collection.find_one({'email': email}, {'_id': 0, 'password': 0})
+            if not user:
+                return jsonify({'error': 'user not found'}), 404
+        user = users_collection.find_one({'email': email}, {'_id': 0, 'password': 0})
+        # issue a fresh token carrying updated claims
+        token = create_token(user)
+        return jsonify({'updated': True, 'user': user, 'token': token})
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).exception('update_profile failed')
+        return jsonify({'error': 'update failed', 'details': str(e)}), 500
 
 
 @auth_bp.route('/me', methods=['GET'])

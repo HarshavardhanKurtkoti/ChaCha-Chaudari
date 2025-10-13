@@ -85,6 +85,32 @@ class _InMemoryCollection:
         # Mimic PyMongo result object minimally (not used by app)
         return type('ReplaceOneResult', (), {'acknowledged': True})()
 
+    def update_one(self, filt, update_dict):
+        """Support simple {'$set': {...}} updates and return a minimal result
+        with attributes matched_count and modified_count to mimic PyMongo.
+        """
+        matched = 0
+        modified = 0
+        for i, d in enumerate(self._docs):
+            if self._match(d, filt):
+                matched += 1
+                # support only $set for now
+                if isinstance(update_dict, dict) and '$set' in update_dict:
+                    for k, v in update_dict['$set'].items():
+                        if d.get(k) != v:
+                            d[k] = v
+                            modified += 1
+                else:
+                    # apply a direct dict merge
+                    for k, v in update_dict.items():
+                        if d.get(k) != v:
+                            d[k] = v
+                            modified += 1
+                self._docs[i] = d
+                break
+        # Minimal result object
+        return type('UpdateResult', (), {'matched_count': matched, 'modified_count': modified})()
+
     def delete_one(self, filt):
         for i, d in enumerate(self._docs):
             if self._match(d, filt):

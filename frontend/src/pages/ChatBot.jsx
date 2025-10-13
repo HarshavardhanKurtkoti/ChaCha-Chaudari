@@ -43,11 +43,12 @@ const ChatBot = ({ setIsSpeaking }) => {
 	async function playTTS(text) {
 		try {
 			const userToken = localStorage.getItem('userToken');
-			const response = await fetch('http://localhost:5000/tts', {
+			const apiBase = import.meta?.env?.DEV ? '/api' : 'http://localhost:5000';
+			const response = await fetch(`${apiBase}/tts`, {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json',
-					'Authorization': userToken || ''
+					...(userToken ? { 'Authorization': `Bearer ${userToken}` } : {}),
 				},
 				body: JSON.stringify({ text }),
 			});
@@ -142,7 +143,7 @@ const ChatBot = ({ setIsSpeaking }) => {
 		// console.log(state, listening);
 	}, [state]);
 
-	const baseURL = 'http://localhost:5000';
+	const baseURL = import.meta?.env?.DEV ? '/api' : 'http://localhost:5000';
 
 	const api = axios.create({
 		baseURL: baseURL,
@@ -166,12 +167,18 @@ const ChatBot = ({ setIsSpeaking }) => {
 					}
 				} catch { /* ignore */ }
 				const userToken = localStorage.getItem('userToken');
-				const response = await api.post(endpoint, { ...userdata, ageGroup, name }, {
-					headers: {
-						'Authorization': userToken ? `Bearer ${userToken}` : ''
-					}
-				});
-			console.log('response', response);
+				const payload = { ...userdata, ageGroup, name };
+				// Speed up kid+audio path by using fast, topic-aware fallback on the server
+				if (audio && ageGroup === 'kid' && !payload.fallback) {
+					payload.fallback = true;
+				}
+				const headers = userToken ? { 'Authorization': `Bearer ${userToken}` } : {};
+				const t0 = performance.now();
+				const response = await api.post(endpoint, payload, { headers });
+				const t1 = performance.now();
+				const serverMs = (response?.data?.latency_ms ?? 0);
+				console.log(`llama-chat: client ${Math.round(t1 - t0)}ms, server ${serverMs}ms, retrieved ${response?.data?.retrieved_count}`);
+			// console.log('response', response);
 			setState('thinking');
 			return response;
 		} catch (err) {

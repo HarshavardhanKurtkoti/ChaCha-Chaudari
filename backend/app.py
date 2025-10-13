@@ -11,6 +11,7 @@ Harsha / Buddy: this file is a cleaned-up, safer version of your draft.
 """
 
 import os
+import time
 import sys
 import types
 import uuid
@@ -191,15 +192,67 @@ except Exception as e:
     logger.exception('Failed to load LLM')
     tokenizer, llm = None, None
 
+# ---------------------------
+# Fallback story builders
+# ---------------------------
+def _kid_story_about(topic: str, name: str | None) -> str:
+    t = (topic or "").strip()
+    nm = (name or "friend").strip()
+    lt = t.lower()
+    # Special-case: Namami Gange
+    if "namami gange" in lt or "namami ganga" in lt:
+        return (
+            f"Hi {nm}, I’m ChaCha, the River Guardian. "
+            f"Namami Gange is India’s big plan to clean and protect the Ganga River. "
+            f"We build plants to clean dirty water, stop trash and sewage, plant trees, and keep animals safe. "
+            f"When people work together, the river becomes healthy and happy again. "
+            f"Ganga dolphins love clean water and they make our river special."
+        )
+    # Generic topic-aware fallback
+    return (
+        f"Hi {nm}, I’m ChaCha, the River Guardian. "
+        f"Here is {t} in simple words you can follow. "
+        f"This is the big idea explained in a small, clear way. "
+        f"You can use this to understand and share with friends. "
+        f"Curious kids grow wise by asking questions every day."
+    )
+
+def _teen_short_about(topic: str) -> str:
+    lt = (topic or "").lower()
+    if "namami gange" in lt or "namami ganga" in lt:
+        return (
+            "Namami Gange is India’s national mission (launched 2014) to clean and rejuvenate the Ganga: "
+            "sewage treatment plants, river-surface cleaning, industrial effluent control, biodiversity, afforestation, and public participation. "
+            "Goal: sustained reduction in pollution and a healthier river ecosystem."
+        )
+    return (
+        f"Here’s the gist of {topic}: key ideas explained clearly in a few lines, with causes, effects, and one practical example."
+    )
+
+def _adult_short_about(topic: str) -> str:
+    lt = (topic or "").lower()
+    if "namami gange" in lt or "namami ganga" in lt:
+        return (
+            "Namami Gange (2014–) is GoI’s flagship river rejuvenation programme: "
+            "pillars include sewage infrastructure, industrial discharge control, riverfront development, biodiversity conservation, afforestation, and public engagement."
+        )
+    return (
+        f"Summary of {topic}: concise definition, 2–3 pillars, and intended outcomes."
+    )
+
 def create_app():
     app = Flask(__name__)
 
     # CORS configuration (allow frontend origin if provided)
     frontend_origin = env_vars.get('FRONTEND_URL')
-    if frontend_origin:
-        CORS(app, resources={r"/*": {"origins": [frontend_origin]}}, supports_credentials=True)
-    else:
-        CORS(app)
+    cors_kwargs = dict(
+        origins=[frontend_origin] if frontend_origin else "*",
+        allow_headers=["Content-Type", "Authorization"],
+        methods=["GET", "POST", "OPTIONS"],
+        max_age=86400,
+        supports_credentials=True,
+    )
+    CORS(app, **cors_kwargs)
 
     # Register blueprints (auth, chats)
     try:
@@ -253,9 +306,13 @@ def create_app():
             'db_mode': 'memory' if _USING_IN_MEMORY_DB else 'mongo'
         })
 
-    @app.route('/llama-chat', methods=['GET', 'POST'])
+    @app.route('/llama-chat', methods=['GET', 'POST', 'OPTIONS'])
     def llama_chat():
+        req_start = time.time()
         logging.debug("Request received at /llama-chat")
+        if request.method == 'OPTIONS':
+            # Fast CORS preflight response
+            return ("", 200)
         if request.method == 'GET':
             return jsonify({
                 'error': 'Use POST with JSON payload {"prompt": "..."}',
@@ -338,13 +395,14 @@ def create_app():
             if user_name:
                 persona_lines.append(f"The user's name is {user_name}.")
             if age_group == 'kid':
-                # Strong storytelling guidance for kids
-                persona_lines.append("You are a friendly storyteller for kids aged 6–9.")
-                persona_lines.append("Begin with 'Once upon a time,' and greet the child by their name in the first sentence if known.")
-                persona_lines.append("Tell a short story in 4–5 simple sentences with a beginning, middle, and end.")
-                persona_lines.append("Use very simple words, short sentences, and a cheerful, encouraging tone.")
-                persona_lines.append("Introduce a friendly character named ChaCha, the River Guardian, and keep everything positive and safe; avoid scary or complex details.")
-                persona_lines.append("Finish with one short moral or fun fact suitable for kids.")
+                # TTS-friendly, conversational kid style
+                persona_lines.append("Speak as ChaCha, the River Guardian, using first-person words (I/me).")
+                persona_lines.append("Start by greeting the child by name with 'Hi <name>,' if known.")
+                persona_lines.append("Use a friendly, conversational tone that talks directly to the child (you).")
+                persona_lines.append(" No lists, no headings, no role labels, no emojis, and no quoted dialogue.")
+                persona_lines.append("Clearly answer the question in simple words and keep it positive and safe.")
+                persona_lines.append("Only output the final message text; do not include any labels or extra commentary.")
+                persona_lines.append("End with a friendly fun fact as the final sentence, without using a label like 'Fun fact:'.")
             elif age_group == 'teen':
                 persona_lines.append("Explain for teenagers with relatable examples, keep it concise and factual, slightly more advanced than kids.")
             else:
@@ -365,23 +423,11 @@ def create_app():
             # 2) If forced fallback or model missing, return a quick templated answer
             if force_fallback or model_missing:
                 if age_group == 'kid':
-                    name_part = user_name or "friend"
-                    result = (
-                        f"Once upon a time, {name_part} asked a question. "
-                        f"ChaCha, the River Guardian, explained the answer in a friendly way. "
-                        f"People work together to keep our rivers clean and safe. "
-                        f"When everyone helps, nature smiles again. "
-                        f"Fun fact: River dolphins need clean water to thrive!"
-                    )
+                    result = _kid_story_about(prompt, user_name)
                 elif age_group == 'teen':
-                    result = (
-                        "In short: it’s a mission to clean and protect the Ganga through sewage treatment, biodiversity, and community action. "
-                        "Aim: a healthier river system and safer water."
-                    )
+                    result = _teen_short_about(prompt)
                 else:
-                    result = (
-                        "It’s a national programme focused on pollution abatement, conservation, and river rejuvenation via sewage infrastructure, effluent control, biodiversity and afforestation."
-                    )
+                    result = _adult_short_about(prompt)
                 return jsonify({
                     "result": result,
                     "retrieved_count": len(retrieved_chunks),
@@ -431,13 +477,15 @@ def create_app():
             ).to(llm.device)
 
             # Use no grad and optionally disable cache to keep memory low
+            do_sample = False if _LLM_DEVICE == 'cpu' else True
             generate_kwargs = dict(
                 max_new_tokens=max_new_tokens,
-                do_sample=False if _LLM_DEVICE == 'cpu' else True,
-                temperature=temperature,
-                top_p=top_p,
+                do_sample=do_sample,
                 use_cache=False if _LLM_DEVICE == 'cpu' else True,
             )
+            if do_sample:
+                # Only pass sampling args when sampling is enabled to avoid warnings
+                generate_kwargs.update(temperature=temperature, top_p=top_p)
             # Limit wall-clock time for generation to avoid long blocking requests
             max_time = float(os.environ.get('LLAMA_MAX_TIME', '10.0' if _LLM_DEVICE == 'cpu' else '20.0'))
             if max_time > 0:
@@ -446,37 +494,28 @@ def create_app():
             try:
                 with no_grad_ctx():
                     output = llm.generate(**inputs, **generate_kwargs)
-                result = tokenizer.decode(output[0], skip_special_tokens=True)
+                # Decode only newly generated tokens to avoid echoing the prompt
+                input_len = int(inputs["input_ids"].shape[1])
+                gen_tokens = output[0][input_len:]
+                result = tokenizer.decode(gen_tokens, skip_special_tokens=True).strip()
             except Exception as gen_err:
                 # Graceful fallback: short, friendly template answer to avoid request crash
                 logger.error(f"LLM generation failed, using fallback: {gen_err}")
                 if age_group == 'kid':
-                    name_part = user_name or "friend"
-                    result = (
-                        f"Once upon a time, {name_part} asked about Namami Gange. "
-                        f"ChaCha, the River Guardian, smiled and said it is a big project to clean and protect the holy Ganga River. "
-                        f"People work together to stop dirty water, plant trees, and keep animals safe. "
-                        f"Everyone helps so the river stays healthy and happy. "
-                        f"Fun fact: Ganga dolphins live in the river and love clean water!"
-                    )
+                    result = _kid_story_about(prompt, user_name)
                 elif age_group == 'teen':
-                    result = (
-                        "Namami Gange is India’s national mission to clean, protect, and revive the Ganga. "
-                        "It focuses on sewage treatment, river-surface cleaning, biodiversity, afforestation, and public participation. "
-                        "Goal: a cleaner, healthier river system with better habitats and safer water."
-                    )
+                    result = _teen_short_about(prompt)
                 else:
-                    result = (
-                        "Namami Gange is the Government of India’s flagship programme to abate pollution and conserve the Ganga. "
-                        "Key pillars: sewage infrastructure, industrial effluent control, riverfront development, biodiversity, afforestation, and awareness."
-                    )
+                    result = _adult_short_about(prompt)
             logging.debug(f"Generated response: {result}")
+            latency_ms = int((time.time() - req_start) * 1000)
             return jsonify({
                 "result": result,
                 "retrieved_count": len(retrieved_chunks),
                 "temperature": round(float(temperature), 2),
                 "top_p": round(float(top_p), 2),
                 "used_max_new_tokens": int(max_new_tokens),
+                "latency_ms": latency_ms,
                 "wants_long": False,
             })
         except Exception as e:

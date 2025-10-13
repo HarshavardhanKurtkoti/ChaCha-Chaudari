@@ -34,8 +34,11 @@ const LoginSignupModal = ({ isOpen, onClose, onAuthenticate }) => {
     } catch {/* ignore */}
   };
 
+  const CLIENT_ID = '77992688871-f1c03ogid6ofcm6jienapoj4gpgunv3d.apps.googleusercontent.com';
+
   const handleGoogleAuth = async (credentialResponse) => {
     try {
+      const apiBase = import.meta?.env?.DEV ? '/api' : 'http://localhost:5000';
       const googleToken = credentialResponse.credential;
 
       // Decode profile info from ID token and persist locally for UI personalization
@@ -64,7 +67,7 @@ const LoginSignupModal = ({ isOpen, onClose, onAuthenticate }) => {
       // Proceed with backend login/signup in the background (optional)
       // If your backend doesn’t yet implement these endpoints, this will
       // fail quietly without blocking the UI.
-      const endpoint = isSignup ? '/auth/google-signup' : '/auth/google-login';
+      const endpoint = isSignup ? `${apiBase}/auth/google-signup` : `${apiBase}/auth/google-login`;
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -102,10 +105,27 @@ const LoginSignupModal = ({ isOpen, onClose, onAuthenticate }) => {
     }
   };
 
+  // Check current origin vs common dev origins and a configured FRONTEND_URL
+  const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
+  const envFrontend = import.meta.env.VITE_FRONTEND_URL || import.meta.env.FRONTEND_URL || null;
+  const allowedDevOrigins = [
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+    'http://localhost:3000',
+    envFrontend,
+  ].filter(Boolean);
+  const originOk = allowedDevOrigins.includes(currentOrigin);
+
+  // For debugging, print the origin and clientId to console
+  try {
+    // eslint-disable-next-line no-console
+    console.debug('LoginSignupModal origin check', { currentOrigin, allowedDevOrigins });
+  } catch (e) { /* ignore */ }
+
   if (!isOpen) return null;
 
   return (
-    <GoogleOAuthProvider clientId="77992688871-f1c03ogid6ofcm6jienapoj4gpgunv3d.apps.googleusercontent.com">
+  <GoogleOAuthProvider clientId={CLIENT_ID}>
       <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 overflow-y-auto">
         <div className="bg-white rounded-xl shadow-2xl w-full max-w-md md:max-w-lg border border-gray-200">
           <div className="p-6 md:p-8 max-h-[90vh] overflow-y-auto">
@@ -191,12 +211,30 @@ const LoginSignupModal = ({ isOpen, onClose, onAuthenticate }) => {
             </div>
           </form>
           <div className="mt-4">
-            <GoogleLogin
-              onSuccess={handleGoogleAuth}
-              onError={() => alert('Google authentication failed')}
-              useOneTap
-              className="w-full flex justify-center"
-            />
+            {!originOk ? (
+              <div className="rounded-md border border-yellow-300 bg-yellow-50 p-4 text-sm text-yellow-900">
+                <div className="font-semibold mb-2">Google Sign-in blocked by origin</div>
+                <div className="mb-2">The current page origin <code className="bg-gray-100 px-1 rounded">{currentOrigin}</code> is not authorized for this OAuth client.</div>
+                <div className="mb-2">To fix this, open the Google Cloud Console → APIs &amp; Services → Credentials, edit the OAuth Client ID, and add the origin below to <strong>Authorized JavaScript origins</strong>:</div>
+                <div className="flex items-center gap-2 mb-2">
+                  <code className="bg-gray-100 px-2 py-1 rounded">{currentOrigin}</code>
+                  <button onClick={() => navigator.clipboard?.writeText(currentOrigin)} className="px-2 py-1 bg-gray-800 text-white rounded text-xs">Copy</button>
+                </div>
+                <div className="mb-2">Also ensure this Client ID is the same one used in your app:</div>
+                <div className="flex items-center gap-2">
+                  <code className="bg-gray-100 px-2 py-1 rounded break-all">{CLIENT_ID}</code>
+                  <button onClick={() => navigator.clipboard?.writeText(CLIENT_ID)} className="px-2 py-1 bg-gray-800 text-white rounded text-xs">Copy</button>
+                </div>
+                <div className="mt-3 text-xs text-gray-700">After updating, wait a few minutes and reload the page. One Tap is disabled in dev to prevent the 403.</div>
+              </div>
+            ) : (
+              <GoogleLogin
+                onSuccess={handleGoogleAuth}
+                onError={() => alert('Google authentication failed')}
+                useOneTap={false}
+                className="w-full flex justify-center"
+              />
+            )}
           </div>
           </div>
         </div>
@@ -216,8 +254,9 @@ const LoginSignupModal = ({ isOpen, onClose, onAuthenticate }) => {
 
             // Persist to backend if token available and refresh JWT
             const userToken = localStorage.getItem('userToken');
+            const apiBase = import.meta?.env?.DEV ? '/api' : 'http://localhost:5000';
             if (userToken) {
-              const upd = await fetch('/auth/update_profile', {
+              const upd = await fetch(`${apiBase}/auth/update_profile`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${userToken}` },
                 body: JSON.stringify({ age: newAge, name: newName }),
