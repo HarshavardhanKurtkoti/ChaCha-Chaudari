@@ -52,6 +52,23 @@ const LoginSignupModal = ({ isOpen, onClose, onAuthenticate }) => {
         provider: 'google',
         updatedAt: Date.now(),
       };
+
+      // If id_token didn't include a picture, try Google's tokeninfo endpoint as a fallback
+      if (!profile.picture && googleToken) {
+        try {
+          const infoRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(googleToken)}`);
+          if (infoRes && infoRes.ok) {
+            const infoJson = await infoRes.json().catch(() => null);
+            if (infoJson && infoJson.picture) {
+              profile.picture = infoJson.picture;
+            }
+          }
+        } catch (e) {
+          // non-fatal; we'll continue without picture
+          console.debug('tokeninfo fetch failed', e);
+        }
+      }
+
       localStorage.setItem('userProfile', JSON.stringify(profile));
 
       // notify app that profile is available
@@ -256,9 +273,12 @@ const LoginSignupModal = ({ isOpen, onClose, onAuthenticate }) => {
             const userToken = localStorage.getItem('userToken');
             const apiBase = import.meta?.env?.DEV ? '/api' : 'http://localhost:5000';
             if (userToken) {
+              const safeToken = (userToken && userToken !== 'null') ? userToken : null;
+              const updHeaders = { 'Content-Type': 'application/json' };
+              if (safeToken) updHeaders['Authorization'] = `Bearer ${safeToken}`;
               const upd = await fetch(`${apiBase}/auth/update_profile`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${userToken}` },
+                headers: updHeaders,
                 body: JSON.stringify({ age: newAge, name: newName }),
               });
               const updData = await upd.json().catch(() => ({}));

@@ -15,7 +15,10 @@ const NavBar = ({ isDark = false }) => {
 	const [menuOpen, setMenuOpen] = useState(false);
 	const [mounted, setMounted] = useState(false);
 	const [profile, setProfile] = useState(null);
-			const [loggedIn, setLoggedIn] = useState(false);
+		const [loggedIn, setLoggedIn] = useState(false);
+		// Avatar load state: error/retry key
+		const [avatarError, setAvatarError] = useState(false);
+		const [avatarRetryKey, setAvatarRetryKey] = useState(0);
 	const navigate = useNavigate();
 	const location = useLocation();
 
@@ -27,6 +30,25 @@ const NavBar = ({ isDark = false }) => {
 		} catch { /* ignore */ }
 			try { setLoggedIn(!!localStorage.getItem('userToken') || !!localStorage.getItem('userProfile')); } catch { setLoggedIn(false); }
 	}, []);
+
+	// Sync localStorage changes from other tabs (helps when profile updated elsewhere)
+	useEffect(() => {
+		const onStorage = (e) => {
+			if (e.key === 'userProfile') {
+				try {
+					setProfile(JSON.parse(e.newValue || 'null'))
+				} catch { /* ignore */ }
+			}
+		}
+		window.addEventListener('storage', onStorage);
+		return () => window.removeEventListener('storage', onStorage);
+	}, []);
+
+		// Reset avatar state when profile changes
+		useEffect(() => {
+			setAvatarError(false);
+			setAvatarRetryKey((k) => k + 1);
+		}, [profile?.picture]);
 
 		useEffect(() => {
 			const onLogin = () => setLoggedIn(true);
@@ -138,9 +160,32 @@ const NavBar = ({ isDark = false }) => {
 																									<Link to='/account' className={`text-sm font-medium px-3 py-2 rounded bg-blue-600 text-white hover:bg-blue-500 transition-colors duration-300`}> 
 																										{profile?.name ? 'My Account' : 'Account'}
 																									</Link>
-																									{profile?.picture && (
-																																						<img loading="lazy" src={profile.picture} alt={profile.name || 'Profile'} className="w-8 h-8 rounded-full border border-gray-700" />
-																									)}
+																										{profile?.picture && !avatarError && (
+																											<img
+																												key={avatarRetryKey}
+																												loading="eager"
+																												src={`${profile.picture}${profile.picture.includes('?') ? '&' : '?'}cb=${avatarRetryKey}`}
+																												alt={profile.name || 'Profile'}
+																												className="w-8 h-8 rounded-full border border-gray-700 object-cover"
+																												crossOrigin="anonymous"
+																												referrerPolicy="no-referrer"
+																												onLoad={() => { /* clear error if previously set */ setAvatarError(false); }}
+																												onError={() => {
+																												// first attempt: bump retry key to force cache-busted reload; second attempt: show initials
+																												if (!avatarError) {
+																													setAvatarRetryKey((k) => k + 1);
+																													setAvatarError(true);
+																												} else {
+																													setAvatarError(true);
+																												}
+																											}}
+																											/>
+																										)}
+																										{(!profile?.picture || avatarError) && (
+																											<div className="w-8 h-8 rounded-full bg-gray-700 text-white flex items-center justify-center font-medium">
+																												{(profile?.name || 'U').split(' ').map(n=>n[0]||'').slice(0,2).join('').toUpperCase()}
+																											</div>
+																										)}
 																								</div>
 											</div>
 										)}

@@ -160,7 +160,13 @@ def _init_mongo_collections():
     """Attempt to initialize real MongoDB collections; return (users, chats) or raise."""
     if not _pymongo_available:
         raise RuntimeError('pymongo not available')
-    client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=8000)
+    # Keep timeouts low so local dev without Mongo falls back quickly
+    client = MongoClient(
+        MONGODB_URI,
+        serverSelectionTimeoutMS=1000,
+        connectTimeoutMS=1000,
+        socketTimeoutMS=1000,
+    )
     db = client[MONGODB_DB]
     users = db['users']
     chats = db['chats']

@@ -28,7 +28,8 @@ export default function Navigation() {
             const userToken = localStorage.getItem('userToken');
             try {
                 const apiBase = import.meta?.env?.DEV ? '/api' : 'http://localhost:1212';
-                const headers = userToken ? { Authorization: `Bearer ${userToken}` } : {};
+                const safeToken = (userToken && userToken !== 'null') ? userToken : null;
+                const headers = safeToken ? { Authorization: `Bearer ${safeToken}` } : {};
                 axios.post(`${apiBase}/updateLocation`, { lat: latitude, lon: longitude }, { headers }).catch(() => {});
             } catch (e) { /* ignore */ }
             // Default map center to user location

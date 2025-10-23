@@ -1,6 +1,7 @@
 import React, { useContext, useEffect, useMemo, useState } from 'react';
 import { AuthUIContext } from 'context/AuthUIContext';
 import useSiteTimer from 'hooks/useSiteTimer';
+import SettingsPanel from 'components/SettingsPanel';
 
 const STORAGE_KEY_GAME = 'gangaGameProgress:v2';
 const STORAGE_KEY_SITE_TIME = 'siteTimeSeconds';
@@ -12,6 +13,8 @@ const Account = () => {
   const [siteSeconds, setSiteSeconds] = useState(0);
   const [chatTalkSeconds, setChatTalkSeconds] = useState(0);
   const [profile, setProfile] = useState(null);
+  const [avatarError, setAvatarError] = useState(false);
+  const [avatarRetryKey, setAvatarRetryKey] = useState(0);
   const [ageInput, setAgeInput] = useState('');
   const [loggedIn, setLoggedIn] = useState(false);
 
@@ -35,6 +38,16 @@ const Account = () => {
       try {
         const p = JSON.parse(localStorage.getItem('userProfile') || 'null');
         if (p) {
+          // If no picture is available, generate a simple avatar using ui-avatars
+          if (!p.picture) {
+            try {
+              const nameForAvatar = p.name || p.email || 'User';
+              p.picture = `https://ui-avatars.com/api/?name=${encodeURIComponent(nameForAvatar)}&background=0D1117&color=ffffff&rounded=true&size=256`;
+              // persist this friendly fallback so other UI picks it up
+              try { localStorage.setItem('userProfile', JSON.stringify(p)); } catch (e) { /* ignore */ }
+              try { window.dispatchEvent(new CustomEvent('profile-updated', { detail: p })); } catch (e) { /* ignore */ }
+            } catch (e) { /* ignore */ }
+          }
           setProfile(p);
           if (p.age && !ageInput) setAgeInput(String(p.age));
         }
@@ -84,10 +97,30 @@ const Account = () => {
     <div className="min-h-[calc(100vh-4rem)] bg-gradient-to-br from-gray-900 via-gray-850 to-gray-900 text-gray-100">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
         <header className="flex items-center gap-4 rounded-2xl border border-gray-800 bg-gray-900/80 p-6 shadow-lg backdrop-blur">
-          {profile?.picture ? (
-            <img src={profile.picture} alt={profile.name || 'Profile'} className="w-12 h-12 rounded-full border border-gray-700" />
+          {profile?.picture && !avatarError ? (
+            <img
+              key={avatarRetryKey}
+              loading="eager"
+              src={`${profile.picture}${profile.picture.includes('?') ? '&' : '?'}cb=${avatarRetryKey}`}
+              alt={profile.name || 'Profile'}
+              className="w-12 h-12 rounded-full border border-gray-700 object-cover"
+              crossOrigin="anonymous"
+              referrerPolicy="no-referrer"
+              onLoad={() => setAvatarError(false)}
+              onError={() => {
+                // First failure: bump retry key to attempt a cache-busted reload. If it fails again, show initials.
+                if (!avatarError) {
+                  setAvatarRetryKey((k) => k + 1);
+                  setAvatarError(true);
+                } else {
+                  setAvatarError(true);
+                }
+              }}
+            />
           ) : (
-            <img src="https://nmcg.nic.in/images/nmcgGif.gif" alt="NMCG" className="w-12 h-12" />
+            <div className="w-12 h-12 rounded-full bg-gray-700 text-white flex items-center justify-center font-medium">
+              {(profile?.name || 'U').split(' ').map(n=>n[0]||'').slice(0,2).join('').toUpperCase()}
+            </div>
           )}
           <div>
             <h1 className="text-2xl font-semibold">{profile?.name ? `${profile.name}'s Account` : 'Your Account'}</h1>
@@ -156,7 +189,7 @@ const Account = () => {
             <div className="rounded-2xl border border-gray-800 bg-gray-900/80 p-6">
               <h3 className="text-base font-medium">Quick Actions</h3>
               <ul className="mt-3 space-y-2 text-sm text-gray-300">
-                <li>• Manage voice/TTS settings</li>
+                <li>• Manage voice/TTS settings (also available below)</li>
                 <li>• Reset game progress</li>
                 <li>• Privacy & security</li>
               </ul>
@@ -165,6 +198,21 @@ const Account = () => {
               ) : (
                 <button onClick={openLoginModal} className="mt-4 w-full rounded-lg bg-blue-600 hover:bg-blue-500 px-4 py-2 text-sm font-medium">Open Login</button>
               )}
+            </div>
+
+            {/* Settings Panel inserted into Account for easy discovery */}
+            <div>
+              <SettingsPanel
+                onResetProgress={() => {
+                  try { localStorage.removeItem(STORAGE_KEY_GAME); } catch (e) { /* ignore */ }
+                  setGame({ points: 0, badges: [], gamesPlayed: 0, achievements: [], streak: 0 });
+                  try { window.dispatchEvent(new CustomEvent('progress-reset')); } catch (e) { /* ignore */ }
+                }}
+                onResetLeaderboard={() => {
+                  try { localStorage.removeItem('gangaLeaderboard'); } catch (e) { /* ignore */ }
+                  try { window.dispatchEvent(new CustomEvent('leaderboard-reset')); } catch (e) { /* ignore */ }
+                }}
+              />
             </div>
 
             <div className="rounded-2xl border border-gray-800 bg-gray-900/80 p-6">

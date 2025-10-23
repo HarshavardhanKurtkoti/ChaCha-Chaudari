@@ -1,4 +1,5 @@
 import { Fragment, useContext, useEffect, useRef, useState } from 'react';
+import { useSettings } from 'context/SettingsContext';
 import '../styles/hide-scrollbar.css';
 import { Welcome } from 'components';
 import { BsMic } from 'react-icons/bs';
@@ -12,6 +13,13 @@ import axios from 'axios';
 import PropTypes from 'prop-types';
 
 const ChatBot = ({ setIsSpeaking }) => {
+	const { settings } = useSettings();
+	// Keep a ref to the latest ttsVoice so event handlers created on mount use
+	// the current selection (avoids stale closures).
+	const ttsVoiceRef = useRef(settings?.ttsVoice);
+	useEffect(() => {
+		ttsVoiceRef.current = settings?.ttsVoice;
+	}, [settings?.ttsVoice]);
 	// On mount, optionally trigger voice flow via custom event. We intentionally don't include
 	// addMessage/getResponse/setIsSpeaking in deps to avoid re-wiring handlers repeatedly.
 	useEffect(() => {
@@ -42,15 +50,15 @@ const ChatBot = ({ setIsSpeaking }) => {
 	// Play Gemini TTS audio for assistant responses
 	async function playTTS(text) {
 		try {
-			const userToken = localStorage.getItem('userToken');
 			const apiBase = import.meta?.env?.DEV ? '/api' : 'http://localhost:5000';
+			const voiceToSend = ttsVoiceRef.current || settings?.ttsVoice;
+			console.debug('playTTS sending voice=', voiceToSend);
 			const response = await fetch(`${apiBase}/tts`, {
 				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json',
-					...(userToken ? { 'Authorization': `Bearer ${userToken}` } : {}),
-				},
-				body: JSON.stringify({ text }),
+				headers: { 'Content-Type': 'application/json' },
+				// Use the ref to ensure the latest selected voice is used even when
+				// this function is called from an event handler created earlier.
+				body: JSON.stringify({ text, voice: voiceToSend }),
 			});
 			if (!response.ok) return;
 			const blob = await response.blob();
@@ -160,24 +168,45 @@ const ChatBot = ({ setIsSpeaking }) => {
 				let name = undefined;
 				try {
 					const p = JSON.parse(localStorage.getItem('userProfile') || 'null');
-					const age = p?.age;
+					const rawAge = p?.age;
 					name = p?.name;
-					if (typeof age === 'number') {
-						ageGroup = age < 10 ? 'kid' : age < 16 ? 'teen' : 'adult';
+					// Accept numbers or strings like "9" in stored profile
+					let age = null;
+					if (typeof rawAge === 'number') age = rawAge;
+					else if (typeof rawAge === 'string' && /^\d+$/.test(rawAge.trim())) age = parseInt(rawAge.trim(), 10);
+					if (typeof age === 'number' && !Number.isNaN(age)) {
+						ageGroup = age <= 10 ? 'kid' : age < 16 ? 'teen' : 'adult';
 					}
-				} catch { /* ignore */ }
+				} catch (e) { console.debug('userProfile parse error', e); }
 				const userToken = localStorage.getItem('userToken');
 				const payload = { ...userdata, ageGroup, name };
-				// Speed up kid+audio path by using fast, topic-aware fallback on the server
-				if (audio && ageGroup === 'kid' && !payload.fallback) {
+				// Provide recent conversation history for context (last 8 messages)
+				try {
+					payload.history = (chatHistory || []).slice(-8);
+				} catch {}
+				// In voice mode we prefer fast fallback, but let kids get full richer answers
+				const isKid = payload.ageGroup === 'kid';
+				if (audio && !payload.fallback && !isKid) {
 					payload.fallback = true;
 				}
-				const headers = userToken ? { 'Authorization': `Bearer ${userToken}` } : {};
+				// Ensure we only send a sane Authorization header (avoid sending 'null' or empty)
+				const safeToken = (userToken && userToken !== 'null') ? userToken : null;
+				const headers = safeToken ? { 'Authorization': `Bearer ${safeToken}` } : {};
+
+				// Debug: log baseURL, headers and payload to help diagnose preflight/latency
+				try {
+					console.debug('llama-chat request', { baseURL: api.defaults.baseURL, endpoint, headers, payload });
+				} catch { /* ignore */ }
+
 				const t0 = performance.now();
 				const response = await api.post(endpoint, payload, { headers });
 				const t1 = performance.now();
 				const serverMs = (response?.data?.latency_ms ?? 0);
-				console.log(`llama-chat: client ${Math.round(t1 - t0)}ms, server ${serverMs}ms, retrieved ${response?.data?.retrieved_count}`);
+				const clientMs = Math.round(t1 - t0);
+				console.log(`llama-chat: client ${clientMs}ms, server ${serverMs}ms, retrieved ${response?.data?.retrieved_count}`);
+				if (clientMs > 3000 || serverMs > 3000) {
+					console.warn('High latency detected for /llama-chat', { clientMs, serverMs, payloadPreview: { prompt: payload.prompt, ageGroup: payload.ageGroup } });
+				}
 			// console.log('response', response);
 			setState('thinking');
 			return response;

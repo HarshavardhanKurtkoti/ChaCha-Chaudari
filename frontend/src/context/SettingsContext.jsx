@@ -5,6 +5,8 @@ const SETTINGS_KEY = 'gangaSettings:v1';
 
 const defaultSettings = {
   soundEnabled: true,
+  // Default to a local Piper-like English India voice id
+  ttsVoice: 'en_IN-male-medium',
 };
 
 const SettingsContext = createContext({ settings: defaultSettings, setSetting: () => {} });

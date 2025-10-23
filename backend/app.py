@@ -22,6 +22,8 @@ from dotenv import dotenv_values
 from flask import Flask, request, send_file, jsonify
 from flask_cors import CORS
 import numpy as np
+import shutil
+import subprocess
 
 # Prevent transformers optional stacks and Flask debug reloader
 os.environ.setdefault("TRANSFORMERS_NO_AUDIO", "1")
@@ -47,7 +49,6 @@ if "soxr" not in sys.modules:
     _soxr_mod.__version__ = "0.0"
     _soxr_mod.__spec__ = _machinery.ModuleSpec(name="soxr", loader=None)
     sys.modules["soxr"] = _soxr_mod
-
 if "soundfile" not in sys.modules:
     import importlib.machinery as _machinery
     _sf_mod = types.ModuleType("soundfile")
@@ -55,12 +56,89 @@ if "soundfile" not in sys.modules:
     _sf_mod.__spec__ = _machinery.ModuleSpec(name="soundfile", loader=None)
     sys.modules["soundfile"] = _sf_mod
 
-# Setup logging
+import threading
+
+# Load environment variables early (used by TTS config too)
+env_vars = dotenv_values('.env')
+
+# Setup logging early so optional imports can safely use `logger`
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Local Piper TTS integration (optional helper module)
+try:
+    from piper_tts import list_piper_voices, synthesize_with_piper  # type: ignore
+    import asyncio
+except Exception:
+    logger.warning('piper_tts helper not found; falling back to stubs')
+    # minimal stubs so module imports succeed; actual piper functionality will be unavailable
+    def list_piper_voices(voices_dir: str):
+        return []
+
+    def synthesize_with_piper(piper_path: str, model_path: str, config_path: str, text: str, out_wav: str):
+        raise RuntimeError('piper_tts not installed; cannot synthesize')
+
+# Piper configuration: path to piper executable and voices directory (contains *.onnx and *.json)
+_piper_bin = os.environ.get('PIPER_PATH') or env_vars.get('PIPER_PATH') or 'piper'
+# Resolve piper in PATH if a bare command is provided
+if not os.path.isabs(_piper_bin):
+    which = shutil.which(_piper_bin)
+    PIPER_PATH = which or _piper_bin
+else:
+    PIPER_PATH = _piper_bin
+PIPER_VOICES_DIR = os.path.join(os.getcwd(), 'voices', 'piper')
+os.makedirs(PIPER_VOICES_DIR, exist_ok=True)
+
+# TTS engine selection: only 'piper' is supported in this repo
+TTS_ENGINE = (os.environ.get('TTS_ENGINE') or env_vars.get('TTS_ENGINE') or 'piper').strip().lower()
+
+# Cache Piper voices
+_PIPER_CACHE = {"time": 0.0, "list": []}
+
+def get_piper_voices(force_refresh: bool = False):
+    now = time.time()
+    if not force_refresh and _PIPER_CACHE["list"] and (now - _PIPER_CACHE["time"]) < 300:
+        return _PIPER_CACHE["list"]
+    voices = list_piper_voices(PIPER_VOICES_DIR)
+    _PIPER_CACHE["list"] = voices
+    _PIPER_CACHE["time"] = now
+    return voices
+
+def pick_indian_piper_voice(preferred_id: str | None) -> dict | None:
+    """Pick a Piper voice dict by id or choose an Indian-locale default.
+    Preference order: exact id match -> any HI-IN -> any EN-IN -> any available.
+    Returns the voice dict or None.
+    """
+    voices = get_piper_voices()
+    if not voices:
+        return None
+    pref = (preferred_id or '').strip()
+    for v in voices:
+        if v.get('id') == pref or v.get('shortName') == pref:
+            return v
+    # prefer Hindi then Indian English
+    for v in voices:
+        if str(v.get('locale')).upper() == 'HI-IN':
+            return v
+    for v in voices:
+        if str(v.get('locale')).upper() == 'EN-IN':
+            return v
+    return voices[0]
+
 # Suppress pdfminer warnings
 logging.getLogger("pdfminer").setLevel(logging.ERROR)
+
+# Reduce noisy third-party logs unless explicitly overridden
+try:
+    logging.getLogger("accelerate").setLevel(logging.WARNING)
+    logging.getLogger("transformers").setLevel(logging.WARNING)
+except Exception:
+    pass
+import warnings as _pywarnings
+_pywarnings.filterwarnings(
+    "ignore",
+    message=r"`prompt_attention_mask` is specified but `attention_mask` is not\\.",
+)
 
 # Suppress noisy torchvision C-extension warning if torchvision gets imported indirectly
 warnings.filterwarnings(
@@ -92,12 +170,11 @@ except Exception as _tx_err:
     AutoTokenizer = AutoModelForCausalLM = BitsAndBytesConfig = None  # type: ignore
     _TRANSFORMERS_AVAILABLE = False
 
-# TTS
-import asyncio
 
-# Load environment variables
-env_vars = dotenv_values('.env')
-AssistantVoice = env_vars.get('AssistantVoice', 'en-US-JennyNeural')
+# Local TTS: repository uses Piper-based local TTS only.
+
+# Deprecated: AssistantVoice for edge-tts (kept for compatibility); Piper uses voice id instead
+AssistantVoice = env_vars.get('AssistantVoice', '')
 InputLanguage = env_vars.get('InputLanguage', 'en')
 MODEL_REPO = './Llama-2-7b-chat-hf'
 
@@ -109,30 +186,19 @@ os.makedirs(DATA_DIR, exist_ok=True)
 def unique_filename(prefix: str, ext: str):
     return os.path.join(DATA_DIR, f"{prefix}_{uuid.uuid4().hex}.{ext}")
 
-# Async TTS saver
-async def _save_tts_async(text: str, voice: str, out_path: str):
-    # Lazy import to avoid import error when edge_tts isn't installed
-    try:
-        import edge_tts  # type: ignore
-    except Exception as e:
-        raise RuntimeError(f"edge-tts not available: {e}")
-    communicate = edge_tts.Communicate(text, voice)
-    await communicate.save(out_path)
-
-def generate_tts_file(text: str, voice: str = AssistantVoice) -> str:
-    """Generates an mp3 TTS file and returns its path. Caller should remove file when done."""
-    out_path = unique_filename('speech', 'mp3')
-    try:
-        asyncio.run(_save_tts_async(text, voice, out_path))
-        return out_path
-    except Exception as e:
-        logger.exception('TTS generation failed')
-        if os.path.exists(out_path):
-            try:
-                os.remove(out_path)
-            except Exception:
-                pass
-        raise
+def generate_tts_file(text: str, voice_id: str | None = None) -> str:
+    """Generate TTS using selected engine. Returns path to a WAV file."""
+    if TTS_ENGINE != 'piper':
+        raise RuntimeError(f"TTS_ENGINE '{TTS_ENGINE}' not supported. Only 'piper' is supported.")
+    # default: piper
+    voice = pick_indian_piper_voice(voice_id)
+    if not voice:
+        raise RuntimeError('No Piper voices found. Place voices in ' + PIPER_VOICES_DIR)
+    model_path = voice['paths']['model']
+    config_path = voice['paths']['config']
+    out_wav = unique_filename('speech', 'wav')
+    synthesize_with_piper(PIPER_PATH, model_path, config_path, text, out_wav)
+    return out_wav
 
 # Simple WAV header helper (if needed)
 def convert_to_wav_headered(audio_data: bytes, bits_per_sample: int = 16, rate: int = 24000) -> bytes:
@@ -171,50 +237,146 @@ tokenizer = None
 llm = None
 _LLM_DEVICE = "cpu"
 logger.info('Initializing LLM (optional)...')
-try:
-    if _TRANSFORMERS_AVAILABLE:
-        tokenizer = AutoTokenizer.from_pretrained(MODEL_REPO, use_fast=True, local_files_only=True)
-        llm = AutoModelForCausalLM.from_pretrained(
-            MODEL_REPO,
-            device_map='auto',
-            trust_remote_code=True,
-            local_files_only=True,
-        )
-        try:
-            import torch as _torch  # type: ignore
-            _LLM_DEVICE = next(llm.parameters()).device.type  # cuda or cpu
-        except Exception:
-            _LLM_DEVICE = "cpu"
-        logger.info(f'LLM loaded on {_LLM_DEVICE}')
-    else:
-        logger.info('LLM skipped (transformers/torch not available)')
-except Exception as e:
-    logger.exception('Failed to load LLM')
-    tokenizer, llm = None, None
+# Allow skipping heavy LLM load during dev/run by setting SKIP_LLM_LOAD=1
+if os.environ.get('SKIP_LLM_LOAD', env_vars.get('SKIP_LLM_LOAD', '')).strip() not in ('1', 'true', 'yes'):
+    try:
+        if _TRANSFORMERS_AVAILABLE:
+            # Decide whether we should restrict to local-only model loads.
+            local_only_flag = (os.environ.get('MODEL_REPO_LOCAL_ONLY') or env_vars.get('MODEL_REPO_LOCAL_ONLY') or '').strip().lower()
+            model_repo_local_only = local_only_flag in ('1', 'true', 'yes')
+
+            repo_path = None
+            try:
+                # If MODEL_REPO looks like a filesystem path, prefer local folder when available
+                if isinstance(MODEL_REPO, str) and (MODEL_REPO.startswith('.') or os.path.isabs(MODEL_REPO) or os.path.sep in MODEL_REPO):
+                    candidate = os.path.abspath(MODEL_REPO)
+                    if os.path.isdir(candidate):
+                        repo_path = candidate
+            except Exception:
+                repo_path = None
+
+            try:
+                if repo_path:
+                    logger.info(f"Attempting to load LLM from local path '{repo_path}'")
+                    tokenizer = AutoTokenizer.from_pretrained(repo_path, use_fast=True, local_files_only=True)
+                    llm = AutoModelForCausalLM.from_pretrained(repo_path, device_map='auto', trust_remote_code=True, local_files_only=True)
+                else:
+                    if model_repo_local_only:
+                        logger.info(f"MODEL_REPO_LOCAL_ONLY set and local path '{MODEL_REPO}' not found; skipping LLM load")
+                    else:
+                        logger.info(f"Attempting to load LLM from '{MODEL_REPO}' (network fetch allowed). Set MODEL_REPO_LOCAL_ONLY=1 to avoid network fetches.")
+                        tokenizer = AutoTokenizer.from_pretrained(MODEL_REPO, use_fast=True)
+                        llm = AutoModelForCausalLM.from_pretrained(MODEL_REPO, device_map='auto', trust_remote_code=True)
+
+                if llm is not None:
+                    try:
+                        import torch as _torch  # type: ignore
+                        _LLM_DEVICE = next(llm.parameters()).device.type  # cuda or cpu
+                    except Exception:
+                        _LLM_DEVICE = "cpu"
+                    logger.info(f'LLM loaded on {_LLM_DEVICE}')
+            except Exception:
+                logger.exception('Failed to load LLM; continuing without LLM')
+        else:
+            logger.info('LLM skipped (transformers/torch not available)')
+    except Exception:
+        logger.exception('Failed to load LLM')
+        tokenizer, llm = None, None
+else:
+    logger.info('SKIP_LLM_LOAD set — skipping LLM initialization')
+
+# ---------------------------
+# TTS preload and readiness
+# ---------------------------
+def _tts_ready() -> bool:
+    """Report whether the configured TTS engine is ready to serve quickly."""
+    try:
+        # Piper: ready if at least one voice is discoverable
+        return len(get_piper_voices()) > 0
+    except Exception:
+        return False
+
+def _preload_tts_sync():
+    """Preload the selected TTS engine so first request is fast."""
+    try:
+        logger.info(f"Preloading TTS engine '{TTS_ENGINE}'...")
+        # Piper: scan voices once to populate cache
+        _ = get_piper_voices(force_refresh=True)
+        if _:
+            logger.info(f"Piper TTS voices available: {len(_)}")
+        else:
+            logger.info('Piper TTS preload found no voices')
+    except Exception:
+        logger.exception('TTS preload encountered an error')
+
+def _preload_tts_async():
+    try:
+        th = threading.Thread(target=_preload_tts_sync, name='tts-preload', daemon=True)
+        th.start()
+    except Exception:
+        logger.exception('Failed to start TTS preload thread')
 
 # ---------------------------
 # Fallback story builders
 # ---------------------------
-def _kid_story_about(topic: str, name: str | None) -> str:
+def _conversational_fallback(topic: str, name: str | None, age_group: str | None, history: list[dict] | None) -> str:
+    """Heuristic, natural-sounding fallback when LLM isn't available.
+    - Warmer tone, short and human.
+    - References known topics with a one-line follow-up question.
+    - Uses recent context lightly (last user message) if present.
+    """
     t = (topic or "").strip()
     nm = (name or "friend").strip()
+    ag = (age_group or "").strip().lower() or None
     lt = t.lower()
-    # Special-case: Namami Gange
-    if "namami gange" in lt or "namami ganga" in lt:
+    # Last user message if any
+    last_user = None
+    try:
+        if history:
+            for m in reversed(history[-6:]):
+                if str(m.get('role')) in ('user', 'User'):
+                    last_user = str(m.get('content') or '').strip()
+                    break
+    except Exception:
+        pass
+
+    # Greeting intents
+    greetings = {"hi", "hello", "hey", "yo", "hola", "namaste", "hi!", "hello!", "hey!"}
+    if lt in greetings or any(lt.startswith(g+" ") for g in greetings):
+        opener = f"Hey {nm}!" if name else "Hey there!"
         return (
-            f"Hi {nm}, I’m ChaCha, the River Guardian. "
-            f"Namami Gange is India’s big plan to clean and protect the Ganga River. "
-            f"We build plants to clean dirty water, stop trash and sewage, plant trees, and keep animals safe. "
-            f"When people work together, the river becomes healthy and happy again. "
-            f"Ganga dolphins love clean water and they make our river special."
+            f"{opener} I’m ChaCha. Great to see you. "
+            f"What should we explore today — the Ganga, Namami Gange, or something else you’re curious about?"
         )
-    # Generic topic-aware fallback
+
+    if "namami gange" in lt or "namami ganga" in lt:
+        core = (
+            "Namami Gange is India’s mission to clean and protect the Ganga — building sewage treatment, reducing pollution, restoring habitats, and involving people."
+        )
+        follow = "Want a quick example from a real city project?"
+        return f"{f'Hi {nm}, ' if name else ''}{core} {follow}"
+
+    if "river ganga" in lt or "ganga river" in lt or "ganges" in lt:
+        core = (
+            "The Ganga is a lifeline for millions — sacred to many, vital for farms and cities, and home to unique wildlife like the Ganges river dolphin."
+        )
+        follow = "Should we talk about wildlife, culture, or how the river is kept healthy?"
+        return f"{f'Hi {nm}, ' if name else ''}{core} {follow}"
+
+    # Generic, topic-aware fallback with a hint of continuity
+    if last_user and last_user != t and len(last_user) > 3:
+        continuity = f"You mentioned earlier: '{last_user}'. "
+    else:
+        continuity = ""
+    follow = "Does that help, or should I go deeper with a short example?"
+    # Slightly simpler phrasing for kids
+    if ag == 'kid':
+        return (
+            f"Hi {nm}, here’s the idea about {t} in simple words you can follow. "
+            f"{continuity}I’ll keep it short and friendly so it’s easy to remember. {follow}"
+        )
     return (
-        f"Hi {nm}, I’m ChaCha, the River Guardian. "
-        f"Here is {t} in simple words you can follow. "
-        f"This is the big idea explained in a small, clear way. "
-        f"You can use this to understand and share with friends. "
-        f"Curious kids grow wise by asking questions every day."
+        f"Here’s the gist of {t}: clear and to the point. {continuity}{follow}"
     )
 
 def _teen_short_about(topic: str) -> str:
@@ -279,20 +441,169 @@ def create_app():
         NOTE: The file is generated with a unique name to avoid concurrency issues."""
         data = request.get_json() or {}
         text = data.get('text')
+        voice_id = data.get('voice') or None
+        description = data.get('description') or data.get('caption') or None
+        logger.info(f"/tts request received. voice_id={voice_id!r} desc_present={bool(description)}")
         if not text:
             return jsonify({'error': 'No text provided'}), 400
         try:
-            out_path = generate_tts_file(text)
-            return send_file(out_path, mimetype='audio/mpeg', as_attachment=False)
+            # Allow clients to request a language or locale hint
+            lang = (data.get('lang') or data.get('locale') or '').strip()
+            style = (data.get('style') or '').strip()
+            seed = data.get('seed')
+            try:
+                seed = int(seed) if seed is not None else None
+            except Exception:
+                seed = None
+            # If language provided and no explicit description, craft a short directive
+            if lang and not description:
+                l = lang.lower()
+                # Basic mapping for common cases; description can control speaker/style for some engines
+                lang_map = {
+                    'hi': 'Speak in Hindi with a neutral Indian accent.',
+                    'hi-in': 'Speak in Hindi with a neutral Indian accent.',
+                    'en': 'Speak in English with an Indian English accent.',
+                    'en-in': 'Speak in English with an Indian English accent.',
+                }
+                base = lang_map.get(l, f"Speak in language: {lang}.")
+                if style:
+                    description = f"{base} Style: {style}."
+                else:
+                    description = base
+
+            # Route to engine-specific generator (prefer offline local-basic for English)
+            tts_start = time.time()
+            use_fast = _EDGE_LOCAL_AVAILABLE and _is_english_hint(lang)
+            # Avoid calling fast helper when voice_id looks engine-specific
+            if voice_id:
+                vlow = str(voice_id).strip().lower()
+                if vlow.startswith('piper'):
+                    logger.info(f"Skipping fast-tts because voice_id '{voice_id}' appears to be engine-specific")
+                    use_fast = False
+            if use_fast:
+                try:
+                    # Use offline local basic engine and return WAV
+                    out_path = tts_local_basic(text, voice=voice_id)
+                    mimetype = 'audio/wav'
+                    resp = send_file(out_path, mimetype=mimetype, as_attachment=False)
+                    try:
+                        resp.headers['X-Voice-Used'] = (voice_id or '')
+                        resp.headers['X-TTS-Engine'] = 'local-basic'
+                    except Exception:
+                        pass
+                    logger.info(f"Fast local-basic TTS used for lang={lang}")
+                    return resp
+                except Exception as e:
+                    logger.exception('fast local-basic TTS failed; falling back to configured engine')
+            # fallback to heavy engines
+            out_path = generate_tts_file(text, voice_id=voice_id)
+            tts_latency_ms = int((time.time() - tts_start) * 1000)
+            logger.info(f"TTS generation finished in {tts_latency_ms}ms (engine={TTS_ENGINE}, voice={voice_id}, lang={lang})")
+            # Piper produces WAV
+            mimetype = 'audio/wav'
+            resp = send_file(out_path, mimetype=mimetype, as_attachment=False)
+            try:
+                resp.headers['X-Voice-Used'] = (voice_id or '')
+                resp.headers['X-TTS-Engine'] = TTS_ENGINE
+            except Exception:
+                pass
+            return resp
         except Exception as e:
             logger.exception('TTS endpoint error')
             return jsonify({'error': 'TTS generation failed', 'details': str(e)}), 500
+
+    # Lightweight local TTS/STT helpers (fast, offline where possible)
+    try:
+        from edge_local_tts_stt import tts_edge_sync, speech_recognition_once, tts_local_basic, list_local_basic_voices
+        _EDGE_LOCAL_AVAILABLE = True
+    except Exception:
+        _EDGE_LOCAL_AVAILABLE = False
+
+    def _is_english_hint(lang_hint: str | None) -> bool:
+        """Return True if lang_hint or configured InputLanguage indicates English."""
+        try:
+            lh = (lang_hint or '').strip().lower()
+            if lh:
+                return lh.startswith('en')
+            cfg = (env_vars.get('InputLanguage') or os.environ.get('InputLanguage') or '').strip().lower()
+            return cfg.startswith('en')
+        except Exception:
+            return False
+
+    @app.route('/fast-tts', methods=['POST'])
+    def fast_tts():
+        # Prefer fully offline local-basic TTS (pyttsx3) and return WAV
+        if not _EDGE_LOCAL_AVAILABLE:
+            return jsonify({'error': 'fast-tts helper not available'}), 503
+        data = request.get_json() or {}
+        text = data.get('text')
+        voice = data.get('voice') or None
+        rate = data.get('rate')
+        try:
+            rate = int(rate) if rate is not None else None
+        except Exception:
+            rate = None
+        if not text:
+            return jsonify({'error': 'No text provided'}), 400
+        try:
+            # Always use offline local-basic here
+            out = tts_local_basic(text, out_path=None, voice=voice, rate=rate)
+            resp = send_file(out, mimetype='audio/wav')
+            try:
+                resp.headers['X-Voice-Used'] = (voice or '')
+                resp.headers['X-TTS-Engine'] = 'local-basic'
+            except Exception:
+                pass
+            return resp
+        except Exception as e:
+            logger.exception('fast-tts failed')
+            return jsonify({'error': 'fast-tts failed', 'details': str(e)}), 500
+
+    @app.route('/fast-stt', methods=['GET'])
+    def fast_stt():
+        if not _EDGE_LOCAL_AVAILABLE:
+            return jsonify({'error': 'fast-stt helper not available'}), 503
+        try:
+            text = speech_recognition_once()
+            return jsonify({'result': text})
+        except Exception as e:
+            logger.exception('fast-stt failed')
+            return jsonify({'error': 'fast-stt failed', 'details': str(e)}), 500
+
+    @app.route('/voices', methods=['GET'])
+    def voices_endpoint():
+        try:
+            # Return local OS voices via pyttsx3; no external engines
+            items = list_local_basic_voices()
+            return jsonify({ 'count': len(items), 'voices': items })
+        except Exception as e:
+            return jsonify({ 'error': 'failed to list voices', 'details': str(e) }), 500
+
+    # Serve generated audio files saved under Data/
+    @app.route('/generated_audio/<path:filename>', methods=['GET'])
+    def get_generated_audio(filename: str):
+        try:
+            path = os.path.join(DATA_DIR, filename)
+            if not os.path.isfile(path):
+                return jsonify({'error': 'file not found'}), 404
+            # Default to WAV for local-basic; clients should handle audio/wav
+            return send_file(path, mimetype='audio/wav', as_attachment=False)
+        except Exception as e:
+            return jsonify({'error': 'failed to serve audio', 'details': str(e)}), 500
 
     @app.route('/stt', methods=['POST'])
     def stt_endpoint():
         data = request.get_json() or {}
         text = data.get('text')
+        # If no text provided and fast STT is available and configured English, run live speech capture
         if not text:
+            if _EDGE_LOCAL_AVAILABLE and _is_english_hint(None):
+                try:
+                    captured = speech_recognition_once()
+                    return jsonify({'result': captured})
+                except Exception as e:
+                    logger.exception('fast-stt capture failed')
+                    return jsonify({'error': 'fast-stt failed', 'details': str(e)}), 500
             return jsonify({'error': 'No text provided'}), 400
         return jsonify({'result': text})
 
@@ -303,6 +614,9 @@ def create_app():
             'rag_ready': embedder is not None and index is not None and chunks is not None,
             'llm_ready': tokenizer is not None and llm is not None,
             'llm_device': _LLM_DEVICE,
+            'tts_engine': TTS_ENGINE,
+            'tts_ready': _tts_ready(),
+            'tts_device': None,
             'db_mode': 'memory' if _USING_IN_MEMORY_DB else 'mongo'
         })
 
@@ -319,7 +633,12 @@ def create_app():
                 'example': {'prompt': 'Hello'}
             }), 405
         if embedder is None or index is None or chunks is None:
-            return jsonify({"error": "RAG components not initialized"}), 503
+            # Allow running in fallback-only mode when RAG data/components are not present.
+            allow_fallback_without_rag = os.environ.get('LLAMA_ALLOW_FALLBACK_WITHOUT_RAG', '')
+            if allow_fallback_without_rag.strip().lower() in ('1', 'true', 'yes'):
+                logger.info('RAG components not initialized but LLAMA_ALLOW_FALLBACK_WITHOUT_RAG set — proceeding in fallback-only mode')
+            else:
+                return jsonify({"error": "RAG components not initialized"}), 503
         # If model is missing but we can still respond, use fallback
         model_missing = tokenizer is None or llm is None
         try:
@@ -355,26 +674,71 @@ def create_app():
                     age_group = 'kid'
             if isinstance(user_name, str):
                 user_name = user_name.strip()
-            # If Authorization header carries a Bearer token from our auth module, try to decode basics
-            try:
-                from auth import SECRET_KEY
-                auth_header = request.headers.get('Authorization')
-                if auth_header and auth_header.startswith('Bearer '):
-                    import jwt
-                    tok = auth_header.split(' ', 1)[1]
-                    claims = jwt.decode(tok, SECRET_KEY, algorithms=['HS256'])
-                    if not user_name:
-                        user_name = claims.get('name')
-                    if not age_group:
-                        age_claim = claims.get('age')
-                        if isinstance(age_claim, int):
-                            age_group = 'kid' if age_claim < 10 else 'teen' if age_claim < 16 else 'adult'
-            except Exception:
-                pass
+            # If Authorization header carries a Bearer token, only use it to backfill missing name/age
+            if not user_name or not age_group:
+                try:
+                    from auth import SECRET_KEY
+                    auth_header = request.headers.get('Authorization')
+                    if auth_header and auth_header.startswith('Bearer '):
+                        import jwt
+                        tok = auth_header.split(' ', 1)[1]
+                        claims = jwt.decode(tok, SECRET_KEY, algorithms=['HS256'])
+                        if not user_name:
+                            user_name = claims.get('name')
+                        if not age_group:
+                            age_claim = claims.get('age')
+                            if isinstance(age_claim, int):
+                                # Treat ages < 12 as 'kid', < 16 as 'teen', else 'adult'
+                                age_group = 'kid' if age_claim < 12 else 'teen' if age_claim < 16 else 'adult'
+                except Exception:
+                    pass
             if not prompt:
                 return jsonify({"error": "No prompt provided"}), 400
 
             logging.debug(f"Prompt received: {prompt}")
+            # Accept recent conversational history from client
+            history = data.get('history')
+            if not isinstance(history, list):
+                history = []
+            # Trim to last few messages
+            history = history[-8:]
+
+            # Lightweight intent: special-case simple greetings
+            simple = (prompt or '').strip().lower()
+            if simple in ("hi", "hello", "hey", "yo", "hola", "namaste"):
+                # For kids, expand the fallback to a multi-paragraph mini story with an outcome
+                base = _conversational_fallback(prompt, user_name, age_group, history)
+                if (age_group or '').strip().lower() == 'kid':
+                    try:
+                        topic = (prompt or '').strip()
+                        name = (user_name or 'friend').strip()
+                        para1 = (
+                            f"Imagine {name} and I visit a small riverside town. The riverbank is bare, and after each rain the soil slides into the water, making it brown and gloomy."
+                        )
+                        para2 = (
+                            f"We talk with neighbors about {topic}. Together we plant native saplings, add simple fences to protect young trees, and place bins so wind can’t carry trash into the river."
+                        )
+                        para3 = (
+                            f"Weeks later, the roots hold the soil, the water turns clearer, and tiny fish return. Children spot a kingfisher diving — a sign the river is healing."
+                        )
+                        moral = (
+                            f"That’s how {topic} works in real life — small steps, done together, create a big, happy change. Would you like to imagine what we can do next at your river?"
+                        )
+                        result = f"{base}\n\n{para1}\n\n{para2}\n\n{para3}\n\n{moral}"
+                    except Exception:
+                        result = base
+                else:
+                    result = base
+                latency_ms = int((time.time() - req_start) * 1000)
+                return jsonify({
+                    "result": result,
+                    "retrieved_count": 0,
+                    "temperature": 0.0,
+                    "top_p": 1.0,
+                    "used_max_new_tokens": 0,
+                    "latency_ms": latency_ms,
+                    "wants_long": False,
+                })
             # 1) Retrieve context (cheap)
             query_emb = embedder.encode([prompt])
             # ensure numpy array with shape (1, D)
@@ -394,46 +758,57 @@ def create_app():
             persona_lines = []
             if user_name:
                 persona_lines.append(f"The user's name is {user_name}.")
+            # Natural, human-style guidance by age
+            persona_lines.append("Speak as ChaCha in first person (I/me), natural and warm, like a real human conversation.")
             if age_group == 'kid':
-                # TTS-friendly, conversational kid style
-                persona_lines.append("Speak as ChaCha, the River Guardian, using first-person words (I/me).")
-                persona_lines.append("Start by greeting the child by name with 'Hi <name>,' if known.")
-                persona_lines.append("Use a friendly, conversational tone that talks directly to the child (you).")
-                persona_lines.append(" No lists, no headings, no role labels, no emojis, and no quoted dialogue.")
-                persona_lines.append("Clearly answer the question in simple words and keep it positive and safe.")
-                persona_lines.append("Only output the final message text; do not include any labels or extra commentary.")
-                persona_lines.append("End with a friendly fun fact as the final sentence, without using a label like 'Fun fact:'.")
+                persona_lines.append("Use simple, positive language and create a longer explanation with a short story example.")
+                persona_lines.append("Structure: briefly explain the idea, then tell a small story showing what happens (setting → action → outcome), and end with one friendly question.")
+                persona_lines.append("Avoid headings and lists; write in 3–5 short paragraphs so it’s easy to follow.")
             elif age_group == 'teen':
-                persona_lines.append("Explain for teenagers with relatable examples, keep it concise and factual, slightly more advanced than kids.")
+                persona_lines.append("Keep it concise, friendly, and practical — one or two short paragraphs.")
             else:
-                persona_lines.append("Explain for adults with clear structure; concise, factual, optionally provide 2-3 bullet points.")
-
-            # Global rule: if context is thin, still answer helpfully; never say "not mentioned in the context"
-            persona_lines.append("If the provided context is missing or incomplete, still answer helpfully using safe, widely-known facts relevant to the question.")
-            persona_lines.append("Do not say that something is not mentioned in the context; simply answer in the requested style.")
+                persona_lines.append("Be concise and conversational; avoid lists unless explicitly asked.")
+            persona_lines.append("When appropriate, end with one short follow-up question to keep the chat flowing.")
+            persona_lines.append("Do not include role labels or markdown headings in the reply.")
+            persona_lines.append("If the context below is thin, still answer helpfully using safe, widely-known facts.")
 
             system_preface = "\n".join(persona_lines)
 
+            # Include the last few conversation turns to maintain continuity
+            convo_lines = []
+            for m in history:
+                try:
+                    role = str(m.get('role', '')).strip().lower()
+                    content = str(m.get('content', '')).strip()
+                    if not content:
+                        continue
+                    if role == 'user':
+                        convo_lines.append(f"User: {content}")
+                    elif role == 'assistant':
+                        convo_lines.append(f"Assistant: {content}")
+                except Exception:
+                    continue
+            conversation_block = "\n".join(convo_lines)
+
             full_prompt = (
                 f"System instructions:\n{system_preface}\n\n"
+                f"Conversation so far:\n{conversation_block}\n\n"
                 f"Context:\n{context}\n\n"
-                f"Question:\n{prompt}\n\n"
-                f"Answer:"
+                f"User message:\n{prompt}\n\n"
+                f"Assistant reply:"
             )
             # 2) If forced fallback or model missing, return a quick templated answer
             if force_fallback or model_missing:
-                if age_group == 'kid':
-                    result = _kid_story_about(prompt, user_name)
-                elif age_group == 'teen':
-                    result = _teen_short_about(prompt)
-                else:
-                    result = _adult_short_about(prompt)
+                logger.info(f"/llama-chat: using fallback (force={force_fallback}, model_missing={model_missing}, age_group={age_group})")
+                result = _conversational_fallback(prompt, user_name, age_group, history)
+                latency_ms = int((time.time() - req_start) * 1000)
                 return jsonify({
                     "result": result,
                     "retrieved_count": len(retrieved_chunks),
                     "temperature": 0.0,
                     "top_p": 1.0,
                     "used_max_new_tokens": 0,
+                    "latency_ms": latency_ms,
                     "wants_long": False,
                 })
 
@@ -445,9 +820,9 @@ def create_app():
             max_new_tokens = int(os.environ.get("LLAMA_MAX_NEW_TOKENS", str(default_tokens)))
             if age_group == 'kid':
                 temperature = 0.7
-                # kid content can be a bit longer, but keep cap on CPU
-                kid_tokens = 96 if _LLM_DEVICE == 'cpu' else 160
-                max_new_tokens = min(max_new_tokens, kid_tokens)
+                # Kids want a much longer, story-like answer
+                kid_tokens = 320 if _LLM_DEVICE == 'cpu' else 600
+                max_new_tokens = max(max_new_tokens, kid_tokens)
             elif age_group == 'teen':
                 temperature = 0.4
                 teen_tokens = 80 if _LLM_DEVICE == 'cpu' else 140
@@ -501,15 +876,41 @@ def create_app():
             except Exception as gen_err:
                 # Graceful fallback: short, friendly template answer to avoid request crash
                 logger.error(f"LLM generation failed, using fallback: {gen_err}")
-                if age_group == 'kid':
-                    result = _kid_story_about(prompt, user_name)
-                elif age_group == 'teen':
-                    result = _teen_short_about(prompt)
-                else:
-                    result = _adult_short_about(prompt)
+                result = _conversational_fallback(prompt, user_name, age_group, history)
             logging.debug(f"Generated response: {result}")
             latency_ms = int((time.time() - req_start) * 1000)
-            return jsonify({
+
+            # Optionally produce TTS for the assistant reply.
+            # Control via request JSON 'tts' flag (true/false/string) or env 'LLAMA_AUTOTTS'.
+            want_tts = False
+            try:
+                env_autotts = os.environ.get('LLAMA_AUTOTTS', '').strip().lower()
+                if env_autotts in ('1', 'true', 'yes'):
+                    want_tts = True
+                req_tts = data.get('tts')
+                if isinstance(req_tts, bool):
+                    want_tts = req_tts
+                elif isinstance(req_tts, str):
+                    if req_tts.strip().lower() in ('1', 'true', 'yes'):
+                        want_tts = True
+            except Exception:
+                want_tts = False
+
+            audio_url = None
+            tts_error = None
+            if want_tts:
+                try:
+                    voice_id = data.get('voice') or data.get('ttsVoice') or None
+                    # Prefer offline local-basic TTS for assistant reply
+                    out_path = unique_filename('speech', 'wav')
+                    wav_path = tts_local_basic(result, out_path=out_path, voice=voice_id)
+                    filename = os.path.basename(wav_path)
+                    audio_url = f"/generated_audio/{filename}"
+                except Exception as tte:
+                    logger.exception('Failed to generate TTS for assistant reply')
+                    tts_error = str(tte)
+
+            resp = {
                 "result": result,
                 "retrieved_count": len(retrieved_chunks),
                 "temperature": round(float(temperature), 2),
@@ -517,13 +918,29 @@ def create_app():
                 "used_max_new_tokens": int(max_new_tokens),
                 "latency_ms": latency_ms,
                 "wants_long": False,
-            })
+            }
+            if audio_url:
+                resp['audio_url'] = audio_url
+            if tts_error:
+                resp['tts_error'] = tts_error
+            return jsonify(resp)
         except Exception as e:
             logging.error(f"Error in /llama-chat: {e}")
             return jsonify({"error": str(e)}), 500
 
     return app
 app = create_app()
+
+# Kick off TTS preload once the Flask app has been created
+try:
+    skip_tts = (os.environ.get('SKIP_TTS_LOAD') or os.environ.get('SKIP_TTS') or '').strip().lower()
+    if skip_tts in ('1', 'true', 'yes'):
+        logger.info('SKIP_TTS_LOAD set — skipping TTS preload at startup')
+    else:
+        _preload_tts_async()
+except Exception:
+    # Non-fatal
+    logger.exception('Failed to evaluate/start TTS preload')
 
 if __name__ == '__main__':  # pragma: no cover
     # Disable debug in container to avoid reloader killing the process on exceptions

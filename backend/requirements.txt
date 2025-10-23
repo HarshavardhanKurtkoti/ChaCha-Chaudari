@@ -1,23 +1,12 @@
-torch==2.5.1
-transformers==4.56.1
-auto-gptq==0.7.1
-bitsandbytes==0.47.0
 flask==3.1.2
 flask-cors==6.0.1
-sentence-transformers==5.1.0
 numpy
-scipy
-faiss-cpu==1.12.0
-pandas
 pdfplumber==0.11.7
 python-dotenv
-edge-tts==7.2.3
 requests
-tqdm
-safetensors
-tokenizers==0.22.0
-optimum
-# Added for MongoDB auth + chats feature
-pymongo==4.9.2
 PyJWT==2.9.0
-textblob==0.18.0.post0
+edge-tts==7.2.3
+# Local offline TTS (Windows/macOS/Linux system voices)
+pyttsx3==2.90
+# Optional (if you want Mongo): pymongo==4.9.2
+# Optional tooling: tqdm
