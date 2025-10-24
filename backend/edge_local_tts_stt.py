@@ -21,7 +21,8 @@ async def _edge_save(text: str, voice: str | None, out_path: str):
     # Lazy import to avoid startup cost
     import edge_tts
     voice_name = voice or (env_vars.get('AssistantVoice') or os.environ.get('AssistantVoice'))
-    communicate = edge_tts.Communicate(text, voice_name or '', pitch='-5Hz', rate='-5%')
+    # Use a slightly slower default rate to improve clarity; pitch adjusted mildly
+    communicate = edge_tts.Communicate(text, voice_name or '', pitch='-2Hz', rate='-15%')
     await communicate.save(out_path)
 
 

@@ -188,17 +188,102 @@ def unique_filename(prefix: str, ext: str):
 
 def generate_tts_file(text: str, voice_id: str | None = None) -> str:
     """Generate TTS using selected engine. Returns path to a WAV file."""
-    if TTS_ENGINE != 'piper':
-        raise RuntimeError(f"TTS_ENGINE '{TTS_ENGINE}' not supported. Only 'piper' is supported.")
-    # default: piper
-    voice = pick_indian_piper_voice(voice_id)
-    if not voice:
-        raise RuntimeError('No Piper voices found. Place voices in ' + PIPER_VOICES_DIR)
-    model_path = voice['paths']['model']
-    config_path = voice['paths']['config']
-    out_wav = unique_filename('speech', 'wav')
-    synthesize_with_piper(PIPER_PATH, model_path, config_path, text, out_wav)
-    return out_wav
+    # Allow some resilience when TTS_ENGINE is set to an unsupported value
+    engine_to_use = TTS_ENGINE
+    if engine_to_use != 'piper':
+        try:
+            # If Piper voices are available on disk, prefer piper even if env differs
+            piper_voices = get_piper_voices()
+        except Exception:
+            piper_voices = []
+        if piper_voices:
+            logger.info(f"TTS_ENGINE='{TTS_ENGINE}' but Piper voices found; using 'piper' engine instead")
+            engine_to_use = 'piper'
+        else:
+            logger.info(f"TTS_ENGINE '{TTS_ENGINE}' not supported and no Piper voices found — falling back to local-basic")
+            # Use local basic TTS as a fallback
+            out_wav = unique_filename('speech', 'wav')
+            try:
+                # Import local-basic helper lazily to avoid import-order issues
+                try:
+                    from edge_local_tts_stt import tts_local_basic
+                except Exception:
+                    raise RuntimeError('local-basic TTS helper not available')
+                tts_local_basic(text, out_path=out_wav, voice=voice_id)
+                return out_wav
+            except Exception as e:
+                logger.exception('local-basic fallback failed')
+                raise RuntimeError('No available TTS engine to synthesize audio') from e
+
+    # Now handle piper engine
+    if engine_to_use == 'piper':
+        voice = pick_indian_piper_voice(voice_id)
+        if not voice:
+            raise RuntimeError('No Piper voices found. Place voices in ' + PIPER_VOICES_DIR)
+        model_path = voice['paths']['model']
+        config_path = voice['paths']['config']
+        out_wav = unique_filename('speech', 'wav')
+        synthesize_with_piper(PIPER_PATH, model_path, config_path, text, out_wav)
+        return out_wav
+    # Should not reach here
+    raise RuntimeError('Failed to select TTS engine')
+
+
+def _safe_send_file(out_path: str, mimetype: str, engine_label: str, voice_id: str | None = None):
+    """Send a generated audio file only if it exists and is non-empty.
+    Returns a Flask response (file or JSON error).
+    Adds diagnostic headers including generated file size and engine used.
+    """
+    try:
+        if not out_path or not os.path.exists(out_path):
+            logger.error('TTS produced no file: %r', out_path)
+            return jsonify({'error': 'TTS produced no file', 'path': out_path}), 500
+        size = 0
+        try:
+            size = os.path.getsize(out_path)
+        except Exception:
+            size = 0
+        if size == 0:
+            logger.error('TTS produced empty file: %r', out_path)
+            # Try to provide a friendly fallback sample if available
+            sample = os.path.join(os.getcwd(), 'frontend', 'public', 'assets', 'chacha-cahaudhary', 'Greeting.wav')
+            if os.path.exists(sample):
+                resp = send_file(sample, mimetype='audio/wav', as_attachment=False)
+                try:
+                    resp.headers['X-TTS-Engine'] = engine_label
+                    resp.headers['X-TTS-Fallback'] = 'sample-greeting'
+                    resp.headers['X-Generated-File-Size'] = str(size)
+                except Exception:
+                    pass
+                return resp
+            return jsonify({'error': 'TTS produced empty file', 'path': out_path}), 500
+        # If file is suspiciously small, return the same friendly fallback so clients don't get 0:00
+        if size < 2000:
+            logger.warning('TTS produced very small file (%d bytes): %r — returning bundled sample fallback', size, out_path)
+            sample = os.path.join(os.getcwd(), 'frontend', 'public', 'assets', 'chacha-cahaudhary', 'Greeting.wav')
+            if os.path.exists(sample):
+                resp = send_file(sample, mimetype='audio/wav', as_attachment=False)
+                try:
+                    resp.headers['X-TTS-Engine'] = engine_label
+                    resp.headers['X-TTS-Fallback'] = 'sample-greeting'
+                    resp.headers['X-Generated-File-Size'] = str(size)
+                except Exception:
+                    pass
+                return resp
+            # no sample fallback available; return error to avoid handing tiny header-only audio
+            return jsonify({'error': 'TTS produced too-small audio', 'path': out_path, 'size': size}), 500
+        resp = send_file(out_path, mimetype=mimetype, as_attachment=False)
+        try:
+            if voice_id is not None:
+                resp.headers['X-Voice-Used'] = (voice_id or '')
+            resp.headers['X-TTS-Engine'] = engine_label
+            resp.headers['X-Generated-File-Size'] = str(size)
+        except Exception:
+            pass
+        return resp
+    except Exception as e:
+        logger.exception('Failed to send generated audio')
+        return jsonify({'error': 'failed to send audio', 'details': str(e)}), 500
 
 # Simple WAV header helper (if needed)
 def convert_to_wav_headered(audio_data: bytes, bits_per_sample: int = 16, rate: int = 24000) -> bytes:
@@ -225,6 +310,40 @@ def convert_to_wav_headered(audio_data: bytes, bits_per_sample: int = 16, rate: 
         data_size,
     )
     return header + audio_data
+
+
+def convert_to_wav_file(src_path: str) -> str:
+    """Ensure the given audio file is a WAV file. If not, convert it to WAV.
+    Tries pydub first (if available), otherwise falls back to ffmpeg CLI.
+    Returns the path to the WAV file (may be the original if already WAV).
+    """
+    try:
+        if not src_path or not os.path.exists(src_path):
+            raise FileNotFoundError(f"Source audio not found: {src_path}")
+        if src_path.lower().endswith('.wav'):
+            return src_path
+        dst = unique_filename('speech', 'wav')
+        # Try pydub first
+        try:
+            from pydub import AudioSegment  # type: ignore
+            aud = AudioSegment.from_file(src_path)
+            aud.export(dst, format='wav')
+            logger.info('Converted %s to WAV via pydub -> %s', src_path, dst)
+            return dst
+        except Exception:
+            logger.info('pydub convert to WAV failed; trying ffmpeg CLI')
+        # Fallback: use ffmpeg CLI
+        try:
+            cmd = ['ffmpeg', '-y', '-i', src_path, dst]
+            subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            logger.info('Converted %s to WAV via ffmpeg -> %s', src_path, dst)
+            return dst
+        except Exception as e:
+            logger.exception('ffmpeg conversion failed')
+            raise RuntimeError('Failed to convert audio to WAV') from e
+    except Exception:
+        logger.exception('convert_to_wav_file failed')
+        raise
 
 """Model initialization with conservative defaults.
 We avoid unnecessary memory pressure on CPU-only machines by:
@@ -449,6 +568,12 @@ def create_app():
         try:
             # Allow clients to request a language or locale hint
             lang = (data.get('lang') or data.get('locale') or '').strip()
+            # Optionally accept an explicit playback rate (pyttsx3 absolute rate)
+            rate = data.get('rate')
+            try:
+                rate = int(rate) if rate is not None else None
+            except Exception:
+                rate = None
             style = (data.get('style') or '').strip()
             seed = data.get('seed')
             try:
@@ -483,31 +608,130 @@ def create_app():
             if use_fast:
                 try:
                     # Use offline local basic engine and return WAV
-                    out_path = tts_local_basic(text, voice=voice_id)
+                    out_path = tts_local_basic(text, voice=voice_id, rate=rate)
                     mimetype = 'audio/wav'
-                    resp = send_file(out_path, mimetype=mimetype, as_attachment=False)
+                    logger.info(f"Fast local-basic TTS used for lang={lang}, out={out_path}")
+                    # If the produced file is suspiciously small (pyttsx3 sometimes
+                    # creates a header-only WAV on some Windows setups), try a
+                    # quick gTTS fallback instead of returning an empty-sounding file.
                     try:
-                        resp.headers['X-Voice-Used'] = (voice_id or '')
-                        resp.headers['X-TTS-Engine'] = 'local-basic'
+                        size = os.path.getsize(out_path) if out_path and os.path.exists(out_path) else 0
                     except Exception:
-                        pass
-                    logger.info(f"Fast local-basic TTS used for lang={lang}")
-                    return resp
+                        size = 0
+                    if size < 2000:
+                        logger.warning('local-basic produced small file (%d bytes); attempting gTTS fallback', size)
+                        try:
+                            from gtts import gTTS  # type: ignore
+                            fb_out = unique_filename('speech', 'mp3')
+                            tts_obj = gTTS(text, lang='hi' if (lang or '').lower().startswith('hi') else 'en')
+                            tts_obj.save(fb_out)
+                            logger.info('gTTS fallback produced %s', fb_out)
+                            try:
+                                wav_fb = convert_to_wav_file(fb_out)
+                                return _safe_send_file(wav_fb, 'audio/wav', 'gtts', voice_id)
+                            except Exception:
+                                # if conversion fails, still attempt to return original mp3
+                                return _safe_send_file(fb_out, 'audio/mpeg', 'gtts', voice_id)
+                        except Exception:
+                            logger.exception('gTTS fallback failed after small local-basic file; trying edge-tts fallback')
+                            # Try edge-tts fallback if available (edge_local_tts_stt.tts_edge_sync)
+                            try:
+                                from edge_local_tts_stt import tts_edge_sync  # type: ignore
+                                fb_out = unique_filename('speech', 'mp3')
+                                tts_edge_sync(text, out_path=fb_out, voice=voice_id)
+                                logger.info('edge-tts fallback produced %s', fb_out)
+                                try:
+                                    wav_fb2 = convert_to_wav_file(fb_out)
+                                    return _safe_send_file(wav_fb2, 'audio/wav', 'edge-tts', voice_id)
+                                except Exception:
+                                    return _safe_send_file(fb_out, 'audio/mpeg', 'edge-tts', voice_id)
+                            except Exception:
+                                logger.exception('edge-tts fallback also failed; returning original local-basic output')
+                    return _safe_send_file(out_path, mimetype, 'local-basic', voice_id)
                 except Exception as e:
                     logger.exception('fast local-basic TTS failed; falling back to configured engine')
+            # If the requested language is Hindi and Piper/local voices are not available,
+            # try a quick online fallback using gTTS (Google TTS) which supports Hindi.
+            # This keeps the UX working when local Piper voices are not installed.
+            lhl = (lang or '').strip().lower()
+            if lhl.startswith('hi'):
+                try:
+                    # Lazy import so gTTS isn't required unless we need it
+                    from gtts import gTTS  # type: ignore
+                    out_path = unique_filename('speech', 'mp3')
+                    tts_obj = gTTS(text, lang='hi')
+                    tts_obj.save(out_path)
+                    # If caller requested a male-sounding voice, attempt a simple
+                    # pitch-lowering post-process to make the voice deeper. This is
+                    # a lightweight heuristic (not a true male voice) and requires
+                    # pydub + ffmpeg available on the host. We try it if the client
+                    # requested gender:'male' or voice string includes 'male'.
+                    want_male = False
+                    try:
+                        req_gender = (data.get('gender') or data.get('sex') or '').strip().lower()
+                        if req_gender == 'male':
+                            want_male = True
+                    except Exception:
+                        want_male = False
+                    try:
+                        if not want_male and voice_id and 'male' in str(voice_id).lower():
+                            want_male = True
+                    except Exception:
+                        pass
+                    if want_male:
+                        try:
+                            from pydub import AudioSegment  # type: ignore
+                            # Load generated mp3
+                            aud = AudioSegment.from_file(out_path, format='mp3')
+                            # Lower pitch by reducing frame rate then resampling back
+                            # Factor 0.85 gives a modest deeper voice; tweakable.
+                            factor = 0.85
+                            new_rate = int(aud.frame_rate * factor)
+                            deeper = aud._spawn(aud.raw_data, overrides={'frame_rate': new_rate})
+                            deeper = deeper.set_frame_rate(aud.frame_rate)
+                            # Overwrite same path as mp3
+                            deeper.export(out_path, format='mp3')
+                            logger.info('Applied pydub pitch-lowering to approximate male voice')
+                        except Exception:
+                            logger.exception('Failed to apply pitch-lowering postprocess; returning original gTTS audio')
+                    logger.info('Used gTTS fallback for Hindi synthesis (out=%s)', out_path)
+                    try:
+                        wav_path = convert_to_wav_file(out_path)
+                        return _safe_send_file(wav_path, 'audio/wav', 'gtts', voice_id)
+                    except Exception:
+                        return _safe_send_file(out_path, 'audio/mpeg', 'gtts', voice_id)
+                except Exception:
+                    logger.exception('gTTS fallback for Hindi failed; trying edge-tts fallback')
+                    try:
+                        from edge_local_tts_stt import tts_edge_sync  # type: ignore
+                        fb_out = unique_filename('speech', 'mp3')
+                        tts_edge_sync(text, out_path=fb_out, voice=voice_id)
+                        logger.info('edge-tts fallback produced %s', fb_out)
+                        try:
+                            wav_fb = convert_to_wav_file(fb_out)
+                            return _safe_send_file(wav_fb, 'audio/wav', 'edge-tts', voice_id)
+                        except Exception:
+                            return _safe_send_file(fb_out, 'audio/mpeg', 'edge-tts', voice_id)
+                    except Exception:
+                        logger.exception('edge-tts fallback for Hindi also failed; returning bundled sample if available')
+                        sample = os.path.join(os.getcwd(), 'frontend', 'public', 'assets', 'chacha-cahaudhary', 'Greeting.wav')
+                        if os.path.exists(sample):
+                            resp = send_file(sample, mimetype='audio/wav', as_attachment=False)
+                            try:
+                                resp.headers['X-TTS-Engine'] = 'none'
+                                resp.headers['X-TTS-Fallback'] = 'sample-greeting'
+                                resp.headers['X-Generated-File-Size'] = '0'
+                            except Exception:
+                                pass
+                            return resp
             # fallback to heavy engines
             out_path = generate_tts_file(text, voice_id=voice_id)
             tts_latency_ms = int((time.time() - tts_start) * 1000)
             logger.info(f"TTS generation finished in {tts_latency_ms}ms (engine={TTS_ENGINE}, voice={voice_id}, lang={lang})")
             # Piper produces WAV
             mimetype = 'audio/wav'
-            resp = send_file(out_path, mimetype=mimetype, as_attachment=False)
-            try:
-                resp.headers['X-Voice-Used'] = (voice_id or '')
-                resp.headers['X-TTS-Engine'] = TTS_ENGINE
-            except Exception:
-                pass
-            return resp
+            logger.info('Returning generated TTS file: %s', out_path)
+            return _safe_send_file(out_path, mimetype, TTS_ENGINE, voice_id)
         except Exception as e:
             logger.exception('TTS endpoint error')
             return jsonify({'error': 'TTS generation failed', 'details': str(e)}), 500
@@ -548,13 +772,38 @@ def create_app():
         try:
             # Always use offline local-basic here
             out = tts_local_basic(text, out_path=None, voice=voice, rate=rate)
-            resp = send_file(out, mimetype='audio/wav')
+            logger.info('fast-tts produced file: %s', out)
             try:
-                resp.headers['X-Voice-Used'] = (voice or '')
-                resp.headers['X-TTS-Engine'] = 'local-basic'
+                size = os.path.getsize(out) if out and os.path.exists(out) else 0
             except Exception:
-                pass
-            return resp
+                size = 0
+            if size < 2000:
+                logger.warning('fast-tts produced small file (%d bytes); attempting gTTS fallback', size)
+    
+                try:
+                    from gtts import gTTS  # type: ignore
+                    fb_out = unique_filename('speech', 'mp3')
+                    tts_obj = gTTS(text, lang='en' if not (voice or '').lower().startswith('hi') else 'hi')
+                    tts_obj.save(fb_out)
+                    try:
+                        wav_fb = convert_to_wav_file(fb_out)
+                        return _safe_send_file(wav_fb, 'audio/wav', 'gtts', voice)
+                    except Exception:
+                        return _safe_send_file(fb_out, 'audio/mpeg', 'gtts', voice)
+                except Exception:
+                    logger.exception('gTTS fallback failed for fast-tts; trying edge-tts fallback')
+                    try:
+                        from edge_local_tts_stt import tts_edge_sync  # type: ignore
+                        fb_out = unique_filename('speech', 'mp3')
+                        tts_edge_sync(text, out_path=fb_out, voice=voice)
+                        try:
+                            wav_fb_e = convert_to_wav_file(fb_out)
+                            return _safe_send_file(wav_fb_e, 'audio/wav', 'edge-tts', voice)
+                        except Exception:
+                            return _safe_send_file(fb_out, 'audio/mpeg', 'edge-tts', voice)
+                    except Exception:
+                        logger.exception('edge-tts fallback failed for fast-tts; returning original')
+            return _safe_send_file(out, 'audio/wav', 'local-basic', voice)
         except Exception as e:
             logger.exception('fast-tts failed')
             return jsonify({'error': 'fast-tts failed', 'details': str(e)}), 500
@@ -573,11 +822,80 @@ def create_app():
     @app.route('/voices', methods=['GET'])
     def voices_endpoint():
         try:
-            # Return local OS voices via pyttsx3; no external engines
+            # Prefer returning Piper voices when available (these are the voices
+            # used by the main TTS engine). If no Piper voices are found, fall
+            # back to local OS voices via pyttsx3 so the frontend still has
+            # something to show.
+            piper_list = []
+            try:
+                piper_list = get_piper_voices() or []
+            except Exception:
+                piper_list = []
+            if piper_list:
+                # Normalize to { id, shortName, locale }
+                items = []
+                for v in piper_list:
+                    try:
+                        items.append({
+                            'id': v.get('id') or v.get('shortName'),
+                            'shortName': v.get('shortName') or v.get('id'),
+                            'locale': v.get('locale') or None,
+                        })
+                    except Exception:
+                        continue
+                return jsonify({ 'count': len(items), 'voices': items, 'engine': 'piper' })
+            # Fallback: return local system voices
             items = list_local_basic_voices()
-            return jsonify({ 'count': len(items), 'voices': items })
+            return jsonify({ 'count': len(items), 'voices': items, 'engine': 'local-basic' })
         except Exception as e:
             return jsonify({ 'error': 'failed to list voices', 'details': str(e) }), 500
+
+    @app.route('/tts-diagnostic', methods=['GET'])
+    def tts_diagnostic():
+        """Return diagnostics about TTS availability and configured Piper path.
+        Helps debug why Piper voices may be missing or why synthesize_with_piper is unavailable.
+        """
+        try:
+            info = {
+                'piper_helper_imported': False,
+                'piper_path': PIPER_PATH,
+                'piper_voices_dir': PIPER_VOICES_DIR,
+                'piper_voices_count': 0,
+                'piper_voices_sample': [],
+            }
+            # If piper helper is available, get cached voices
+            try:
+                voices = get_piper_voices(force_refresh=True) or []
+                info['piper_helper_imported'] = True
+                info['piper_voices_count'] = len(voices)
+                # include up to 8 sample entries (id, shortName, locale)
+                info['piper_voices_sample'] = [ { 'id': v.get('id'), 'shortName': v.get('shortName'), 'locale': v.get('locale') } for v in voices[:8] ]
+            except Exception as e:
+                info['piper_helper_imported'] = False
+                info['piper_error'] = str(e)
+            # Check for optional audio post-processing availability (pydub + ffmpeg)
+            try:
+                from pydub import AudioSegment  # type: ignore
+                info['pydub_available'] = True
+                # Try to detect ffmpeg by attempting to call AudioSegment.converter
+                try:
+                    ff = AudioSegment.converter
+                    info['ffmpeg_path'] = ff
+                    info['ffmpeg_available'] = bool(ff and os.path.exists(ff))
+                except Exception:
+                    info['ffmpeg_path'] = None
+                    info['ffmpeg_available'] = False
+            except Exception as e:
+                info['pydub_available'] = False
+                info['pydub_error'] = str(e)
+            # Check whether PIPER_PATH points to an executable file
+            try:
+                info['piper_path_exists'] = os.path.isabs(PIPER_PATH) and os.path.exists(PIPER_PATH)
+            except Exception:
+                info['piper_path_exists'] = False
+            return jsonify(info)
+        except Exception as e:
+            return jsonify({'error': 'diagnostic failed', 'details': str(e)}), 500
 
     # Serve generated audio files saved under Data/
     @app.route('/generated_audio/<path:filename>', methods=['GET'])

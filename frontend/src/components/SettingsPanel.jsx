@@ -8,12 +8,12 @@ const SettingsPanel = ({ onResetProgress, onResetLeaderboard }) => {
   const fallbackVoices = useMemo(() => ([
     { id: 'en_IN-male-medium', label: 'en_IN-male-medium (Piper)' },
     { id: 'hi_IN-male-medium', label: 'hi_IN-male-medium (Piper)' },
-    { id: 'en_IN-male-medium', label: 'en_IN-male-medium (Piper)' },
-    { id: 'hi_IN-male-medium', label: 'hi_IN-male-medium (Piper)' },
   ]), []);
 
   const [voiceOptions, setVoiceOptions] = useState(fallbackVoices);
   const [loadingVoices, setLoadingVoices] = useState(false);
+  // Local selected voice to make sample playback respond immediately
+  const [currentVoice, setCurrentVoice] = useState(settings?.ttsVoice || fallbackVoices[0]?.id);
 
   useEffect(() => {
     const loadVoices = async () => {
@@ -41,9 +41,12 @@ const SettingsPanel = ({ onResetProgress, onResetLeaderboard }) => {
               (uniq.find(u => u.id.toLowerCase().startsWith('hi_in'))?.id) ||
               uniq[0].id;
             setSetting('ttsVoice', preferred);
+            setCurrentVoice(preferred);
           }
         } else {
           setVoiceOptions(fallbackVoices);
+          // ensure local currentVoice is valid
+          setCurrentVoice(settings?.ttsVoice || fallbackVoices[0]?.id);
         }
       } catch (e) {
         console.warn('Failed to load voices from API, using fallback list', e);
@@ -55,20 +58,100 @@ const SettingsPanel = ({ onResetProgress, onResetLeaderboard }) => {
     loadVoices();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fallbackVoices]);
+  // Keep local currentVoice in sync when settings change (e.g., load from storage)
+  useEffect(() => {
+    if (settings?.ttsVoice) setCurrentVoice(settings.ttsVoice);
+  }, [settings?.ttsVoice]);
+  // Compute the effective language hint to display (matches playSample logic)
+  const effectiveLang = (settings?.ttsLang && settings.ttsLang !== 'en-IN')
+    ? settings.ttsLang
+    : (currentVoice && currentVoice.toLowerCase().includes('hi') ? 'hi-IN' : 'en-IN');
   const playSample = async () => {
     try {
       const apiBase = import.meta?.env?.DEV ? '/api' : 'http://localhost:5000';
-  const sample = `I am ChaCha Chaudhary`;
+      // determine the voice to send (prefer immediate selection)
+      const voiceToSend = currentVoice || settings?.ttsVoice || voiceOptions[0]?.id;
+      // derive a language hint: prefer an explicit user setting only if it's not the default 'en-IN'
+      const langToSend = (settings?.ttsLang && settings.ttsLang !== 'en-IN')
+        ? settings.ttsLang
+        : (voiceToSend && voiceToSend.toLowerCase().includes('hi') ? 'hi-IN' : 'en-IN');
+      // choose sample text appropriate for the language so Hindi voices speak Hindi
+      const sample = (langToSend && langToSend.toLowerCase().startsWith('hi'))
+        ? 'नमस्ते, मेरा नाम चाचा चौधरी है'
+        : 'I am ChaCha Chaudhary';
+      const body = { text: sample, voice: voiceToSend, rate: settings?.ttsRate, lang: langToSend };
+      console.debug('TTS sample request body:', body);
       const res = await fetch(`${apiBase}/tts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: sample, voice: settings?.ttsVoice || voiceOptions[0]?.id })
+        body: JSON.stringify(body)
       });
-      if (!res.ok) return;
+      if (!res.ok) {
+        // Try to get JSON error for debugging
+        try {
+          const j = await res.json();
+          console.error('TTS /tts error response:', j);
+          window.alert('TTS server error: ' + (j?.error || JSON.stringify(j)));
+        } catch (e) {
+          console.error('TTS error, non-json response', e);
+          window.alert('TTS request failed (non-200 response)');
+        }
+        // attempt fallback to fast-tts
+        console.info('Attempting fallback to /fast-tts');
+        try {
+          const fb = await fetch(`${apiBase}/fast-tts`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: body.text, voice: body.voice, rate: body.rate })
+          });
+          if (fb.ok) {
+            const fblob = await fb.blob();
+            if (fblob && fblob.size > 0) {
+              const furl = URL.createObjectURL(fblob);
+              const fa = document.createElement('audio'); fa.src = furl; fa.autoplay = true; fa.controls = true; document.body.appendChild(fa);
+              return;
+            }
+          }
+        } catch (e) { console.warn('fast-tts fallback failed', e); }
+        return;
+      }
       const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const audio = new Audio(url);
-      audio.play();
+      // If the returned blob is empty, attempt fallback and surface an error
+      if (!blob || blob.size === 0) {
+        console.error('TTS returned empty audio blob; size=0');
+        window.alert('TTS returned empty audio. Server may be misconfigured. Check backend logs.');
+        // attempt fallback to /fast-tts
+        try {
+          const fb = await fetch(`${apiBase}/fast-tts`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: body.text, voice: body.voice, rate: body.rate })
+          });
+          if (fb.ok) {
+            const fblob = await fb.blob();
+            if (fblob && fblob.size > 0) {
+              const furl = URL.createObjectURL(fblob);
+              const fa = document.createElement('audio'); fa.src = furl; fa.autoplay = true; fa.controls = true; document.body.appendChild(fa);
+              return;
+            }
+          }
+        } catch (e) { console.warn('fast-tts fallback failed', e); }
+        return;
+      }
+  // Create an audio element and append it so autoplay restrictions can be bypassed by user
+  const url = URL.createObjectURL(blob);
+      const audio = document.createElement('audio');
+      audio.src = url;
+      audio.autoplay = true;
+      audio.controls = true;
+      // Clean up when finished
+      audio.onended = () => {
+        try { URL.revokeObjectURL(url); if (audio.parentNode) audio.parentNode.removeChild(audio); } catch (e) { void e; }
+      };
+      audio.onerror = (ev) => {
+        console.error('Audio playback error', ev);
+      };
+      // Append to body so user can press play if autoplay is blocked
+      document.body.appendChild(audio);
+      audio.play().catch(err => {
+        console.warn('Autoplay failed, user interaction may be required:', err);
+      });
     } catch (e) {
       console.error('Sample TTS failed', e);
     }
@@ -89,17 +172,37 @@ const SettingsPanel = ({ onResetProgress, onResetLeaderboard }) => {
         <label className="text-sm text-gray-200">TTS Voice</label>
         <select
           className="px-2 py-1 rounded bg-gray-700 text-gray-100 border border-gray-600 text-sm"
-          value={settings?.ttsVoice ?? ''}
-          onChange={(e) => setSetting('ttsVoice', e.target.value)}
+          value={currentVoice ?? ''}
+          onChange={(e) => {
+            const v = e.target.value;
+            setCurrentVoice(v);
+            setSetting('ttsVoice', v);
+          }}
           disabled={!settings}
         >
           {voiceOptions.map(v => (
             <option key={v.id} value={v.id}>{v.label}</option>
           ))}
         </select>
+  <div className="text-xs text-gray-400 ml-2">Using: {currentVoice} · {effectiveLang}</div>
         {loadingVoices && (
           <span className="text-xs text-gray-400">Loading…</span>
         )}
+      </div>
+      <div className="mt-3">
+        <label className="text-sm text-gray-200">TTS Speed</label>
+        <div className="flex items-center gap-2 mt-1">
+          <input
+            type="range"
+            min={80}
+            max={240}
+            value={settings?.ttsRate ?? 150}
+            onChange={(e) => setSetting('ttsRate', parseInt(e.target.value, 10))}
+            className="w-full"
+          />
+          <div className="w-14 text-sm text-gray-200 text-right">{settings?.ttsRate ?? 150}</div>
+        </div>
+        <div className="text-xs text-gray-400 mt-1">Lower = slower, higher = faster. Adjust for clearer speech.</div>
       </div>
       <div className="mt-2">
         <button className="px-3 py-1 text-sm rounded bg-blue-600 hover:bg-blue-500 text-white" onClick={playSample}>

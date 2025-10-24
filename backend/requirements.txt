@@ -10,3 +10,5 @@ edge-tts==7.2.3
 pyttsx3==2.90
 # Optional (if you want Mongo): pymongo==4.9.2
 # Optional tooling: tqdm
+gTTS==2.5.1
+pydub==0.25.1

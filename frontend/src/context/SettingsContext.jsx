@@ -7,6 +7,11 @@ const defaultSettings = {
   soundEnabled: true,
   // Default to a local Piper-like English India voice id
   ttsVoice: 'en_IN-male-medium',
+  // Default TTS playback rate (pyttsx3 uses absolute rate; lower = slower)
+  // Typical default on Windows is ~200; choose a slightly slower default for clarity
+  ttsRate: 150,
+  // Language hint passed to backend to improve pronunciation choices
+  ttsLang: 'en-IN',
 };
 
 const SettingsContext = createContext({ settings: defaultSettings, setSetting: () => {} });

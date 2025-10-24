@@ -58,7 +58,12 @@ const ChatBot = ({ setIsSpeaking }) => {
 				headers: { 'Content-Type': 'application/json' },
 				// Use the ref to ensure the latest selected voice is used even when
 				// this function is called from an event handler created earlier.
-				body: JSON.stringify({ text, voice: voiceToSend }),
+				body: JSON.stringify({
+					text,
+					voice: voiceToSend,
+					rate: settings?.ttsRate,
+					lang: settings?.ttsLang || 'en-IN',
+				}),
 			});
 			if (!response.ok) return;
 			const blob = await response.blob();
