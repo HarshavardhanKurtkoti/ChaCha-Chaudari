@@ -56,6 +56,68 @@
   background: linear-gradient(135deg, #e0e7ff 0%, #f0fdfa 100%);
   min-height: 100vh;
   padding: 2rem 0;
+  position: relative; /* for animated background layers */
+  overflow: hidden;    /* hide overflow from animated layers */
+}
+
+/* Background layers as real elements so we can parallax them */
+.warroom-bg-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+/* Animated diagonal lines */
+.warroom-bg-lines {
+  /* Two layered repeating gradients for depth */
+  background-image:
+    repeating-linear-gradient(
+      135deg,
+      rgba(255,255,255,0.06) 0px,
+      rgba(255,255,255,0.06) 2px,
+      transparent 2px,
+      transparent 26px
+    ),
+    repeating-linear-gradient(
+      135deg,
+      rgba(30,58,138,0.05) 0px,
+      rgba(30,58,138,0.05) 1px,
+      transparent 1px,
+      transparent 56px
+    );
+  background-size: 500% 500%;
+  animation: warroom-diagonal-move 16s linear infinite;
+  opacity: 0.85;
+  will-change: background-position, transform;
+}
+
+/* Soft moving glow */
+.warroom-bg-glow {
+  background: radial-gradient( circle at 50% 50%, rgba(59,130,246,0.10), rgba(59,130,246,0) 45% ),
+              radial-gradient( circle at 70% 30%, rgba(16,185,129,0.10), rgba(16,185,129,0) 40% );
+  filter: blur(22px);
+  animation: warroom-glow-drift 22s ease-in-out infinite alternate;
+  opacity: 0.9;
+  will-change: transform;
+}
+
+@keyframes warroom-diagonal-move {
+  0%   { background-position: 0 0, 0 0; }
+  50%  { background-position: -900px 900px, -300px 300px; }
+  100% { background-position: -1800px 1800px, -600px 600px; }
+}
+
+@keyframes warroom-glow-drift {
+  0%   { transform: translate(-50%, -50%) rotate(0deg) scale(1); }
+  50%  { transform: translate(-52%, -48%) rotate(8deg)  scale(1.05); }
+  100% { transform: translate(-49%, -51%) rotate(-6deg) scale(1.02); }
+}
+
+/* Ensure content renders above animated layers */
+.warroom-container > * {
+  position: relative;
+  z-index: 1;
 }
 
 .warroom-header {
@@ -102,13 +164,36 @@
   margin-bottom: 2rem;
 }
 
+.warroom-card {
+  perspective: 900px;
+  cursor: default;
+}
+
+.warroom-card-3d {
+  transform-style: preserve-3d;
+  transition: box-shadow 0.2s ease;
+  will-change: transform;
+}
+
+.warroom-card:hover .warroom-card-3d {
+  box-shadow: 0 16px 40px rgba(2, 6, 23, 0.18);
+}
+
+.warroom-card-content {
+  border-radius: 0; /* squared by default */
+  transition: border-radius 0.25s ease;
+  overflow: visible; /* clip only when rounded on hover */
+}
+
 .warroom-gallery img {
-  border-radius: 12px;
+  border-radius: 0; /* squared by default; rounded only on hover */
   box-shadow: 0 2px 12px rgba(30,41,59,0.10);
   max-width: 320px;
   width: 100%;
   height: 200px;
   object-fit: cover;
+  transform: translateZ(24px);
+  transition: border-radius 0.25s ease;
 }
 
 .warroom-legend {
@@ -116,6 +201,66 @@
   color: #475569;
   font-size: 1rem;
   margin-top: 0.5rem;
+  transform: translateZ(16px);
+  /* Subtle glassy box; not too boxy by default */
+  background: rgba(255,255,255,0.08);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  border: 1px solid rgba(255,255,255,0.35);
+  border-radius: 0; /* squared by default; rounds only on hover */
+  padding: 0.55rem 0.9rem;
+  box-shadow: 0 8px 20px rgba(2,6,23,0.10);
+  position: relative;
+  overflow: hidden;
+  transition: border-radius 0.25s ease, box-shadow 0.25s ease, background 0.25s ease, border-color 0.25s ease, backdrop-filter 0.25s ease;
+}
+
+/* Round corners only during active hover/tilt (and keyboard focus) */
+.warroom-card:hover .warroom-card-content,
+.warroom-card:focus-within .warroom-card-content {
+  border-radius: 14px;
+  overflow: hidden; /* clip inner image corners */
+}
+
+.warroom-card:hover img,
+.warroom-card:focus-within img {
+  border-radius: 14px;
+}
+
+/* Glossy finish for the legend box (only on hover/focus) */
+.warroom-legend::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg,
+    rgba(255,255,255,0) 20%,
+    rgba(255,255,255,0.65) 38%,
+    rgba(255,255,255,0) 60%
+  );
+  opacity: 0; /* reveal on hover */
+  transform: translateX(-120%);
+  transition: opacity 0.25s ease;
+  pointer-events: none;
+}
+
+.warroom-card:hover .warroom-legend,
+.warroom-card:focus-within .warroom-legend {
+  border-radius: 16px;
+  background: rgba(255,255,255,0.24);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  border-color: rgba(255,255,255,0.55);
+  box-shadow: 0 14px 34px rgba(2,6,23,0.16);
+}
+
+.warroom-card:hover .warroom-legend::after,
+.warroom-card:focus-within .warroom-legend::after {
+  opacity: 1;
+  animation: warroom-sheen 1.1s ease forwards;
+}
+
+@keyframes warroom-sheen {
+  to { transform: translateX(120%); }
 }
 
 @media (max-width: 600px) {

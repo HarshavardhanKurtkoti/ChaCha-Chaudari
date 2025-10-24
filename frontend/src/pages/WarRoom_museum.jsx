@@ -1,6 +1,6 @@
-import { Fragment, useState } from 'react';
+import { Fragment, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
-import { motion } from 'framer-motion';
+import { motion, useScroll, useTransform, useMotionValue } from 'framer-motion';
 import './WarRoom_museum.css';
 import { Skeleton } from '@mantine/core';
 
@@ -17,10 +17,50 @@ const item = {
 	show: { opacity: 1, y: 0, transition: { duration: 0.45 } },
 };
 
+function ParallaxLayer({ speed = -120, className = '' }) {
+  const { scrollY } = useScroll();
+  // Map scroll Y (px) to a smaller translateY based on speed factor
+  const y = useTransform(scrollY, (v) => (v * speed) / 1000);
+  return <motion.div aria-hidden className={`warroom-bg-layer ${className}`} style={{ y }} />;
+}
+
+function TiltCard({ children, maxTilt = 14, hoverScale = 1.02 }) {
+  const ref = useRef(null);
+  const rX = useMotionValue(0);
+  const rY = useMotionValue(0);
+  const sc = useMotionValue(1);
+
+  function handleMove(e) {
+    const el = ref.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const px = (e.clientX - rect.left) / rect.width - 0.5; // -0.5 .. 0.5
+    const py = (e.clientY - rect.top) / rect.height - 0.5;
+    rY.set(px * maxTilt);   // rotateY (left/right)
+    rX.set(-py * maxTilt);  // rotateX (up/down)
+  }
+  function handleEnter() { sc.set(hoverScale); }
+  function handleLeave() { rX.set(0); rY.set(0); sc.set(1); }
+
+  return (
+    <div className="warroom-card" ref={ref}
+         onMouseMove={handleMove}
+         onMouseEnter={handleEnter}
+         onMouseLeave={handleLeave}>
+      <motion.div className="warroom-card-3d" style={{ rotateX: rX, rotateY: rY, scale: sc }}>
+        {children}
+      </motion.div>
+    </div>
+  );
+}
+
 function WarRoom_museum() {
 	return (
 		<Fragment>
 			<div className="warroom-container">
+				{/* Parallax background layers */}
+				<ParallaxLayer className="warroom-bg-lines" speed={-160} />
+				<ParallaxLayer className="warroom-bg-glow" speed={-260} />
 				<motion.div
 					variants={container}
 					initial="hidden"
@@ -42,8 +82,12 @@ function WarRoom_museum() {
 						legend: 'Museum Exhibit',
 					}].map((img, i) => (
 						<motion.div key={i} variants={item}>
-							<ImageWithSkeleton src={img.src} alt={img.alt} />
-							<p className="warroom-legend">{img.legend}</p>
+							<TiltCard>
+								<div className="warroom-card-content">
+									<ImageWithSkeleton src={img.src} alt={img.alt} />
+									<p className="warroom-legend">{img.legend}</p>
+								</div>
+							</TiltCard>
 						</motion.div>
 					))}
 				</motion.div>
