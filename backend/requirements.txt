@@ -6,9 +6,13 @@ python-dotenv
 requests
 PyJWT==2.9.0
 edge-tts==7.2.3
+# For downloading local models from Hugging Face
+huggingface_hub>=0.22
 # Local offline TTS (Windows/macOS/Linux system voices)
 pyttsx3==2.90
 # Optional (if you want Mongo): pymongo==4.9.2
 # Optional tooling: tqdm
 gTTS==2.5.1
 pydub==0.25.1
+# Optional acceleration for RAG (speeds up similarity search). Install only if needed:
+# faiss-cpu==1.8.0.post1

@@ -27,32 +27,31 @@ function ChachaModel({ isSpeaking }) {
 
 // Remove global preload: preload only when Bot mounts to avoid early network usage.
 
+export function ChachaCanvas({ isSpeaking = false }) {
+	return (
+		<div style={{ width: '100%', height: '100%' }}>
+			<Canvas camera={{ position: [0, 2, 8], fov: 40 }} style={{ width: '100%', height: '100%' }}>
+				<ambientLight intensity={1} />
+				<directionalLight position={[10, 10, 10]} intensity={1.2} />
+				<Suspense fallback={null}>
+						<ChachaModel isSpeaking={isSpeaking} />
+					</Suspense>
+				<OrbitControls enablePan={true} enableZoom={true} />
+			</Canvas>
+		</div>
+	);
+}
+
 const Bot = () => {
 	const [isSpeaking] = useState(false);
 
 	return (
 		<>
-			{/* Info Banner */}
-			{/* Chacha Chaudhary & Chat */}
-			<section className="flex flex-col md:flex-row items-end gap-4 px-3 py-4">
-				{/* 3D Model Container with animation */}
-				<div className="flex flex-col items-center md:items-start w-full">
-					   <div
-						   className={`transition-transform duration-700 ease-in-out translate-x-0 relative`}
-						   style={{ width: '500px', height: '600px', maxWidth: '500px', margin: '0 auto', borderRadius: '24px', overflow: 'hidden' }}
-					   >
-						<Canvas camera={{ position: [0, 2, 8], fov: 40 }} style={{ width: '100%', height: '100%' }}>
-							<ambientLight intensity={1} />
-							<directionalLight position={[10, 10, 10]} intensity={1.2} />
-							<Suspense fallback={null}>
-									<ChachaModel isSpeaking={isSpeaking} />
-								</Suspense>
-							<OrbitControls enablePan={true} enableZoom={true} />
-						</Canvas>
-					</div>
+			{/* Standalone model canvas for legacy usage */}
+			<section className="px-3 py-4">
+				<div className="chacha-3d-pill" style={{ width: '500px', height: '600px', maxWidth: '500px', margin: '0 auto', borderRadius: '24px', overflow: 'hidden' }}>
+					<ChachaCanvas isSpeaking={isSpeaking} />
 				</div>
-				{/* Chat box with fade-in animation only */}
-				   {/* Chat box removed from Bot.jsx. Only accessible from Home.jsx top right button. */}
 			</section>
 		</>
 	);
@@ -61,5 +60,9 @@ const Bot = () => {
 export default Bot;
 
 ChachaModel.propTypes = {
+	isSpeaking: PropTypes.bool,
+};
+
+ChachaCanvas.propTypes = {
 	isSpeaking: PropTypes.bool,
 };

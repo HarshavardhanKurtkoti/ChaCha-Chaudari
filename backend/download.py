@@ -1,10 +1,18 @@
-from huggingface_hub import hf_hub_download
+"""
+Simple helper to download a local copy of Phi-3-mini instruct.
 
-# Quantized GGUF file name inside the repo
-filename = "llama-2-7b-chat.Q4_K_M.gguf"
+For more options (destination, revision), use tools/download_local_llm.py instead.
+"""
+from __future__ import annotations
+import os
+from pathlib import Path
+from huggingface_hub import snapshot_download
 
-# Repo and local path
-repo_id = "TheBloke/Llama-2-7B-Chat-GGUF"
-local_path = hf_hub_download(repo_id=repo_id, filename=filename)
+DEFAULT_REPO = "microsoft/Phi-3-mini-4k-instruct"
+DST = Path(os.getcwd()).joinpath("models", "phi-3-mini-4k-instruct")
+DST.mkdir(parents=True, exist_ok=True)
 
-print("Downloaded quantized model to:", local_path)
+print(f"Downloading {DEFAULT_REPO} to {DST} ...")
+local_path = snapshot_download(repo_id=DEFAULT_REPO, local_dir=str(DST), local_dir_use_symlinks=False)
+print("Done.")
+print("Local model path:", local_path)

@@ -52,18 +52,30 @@ const Home = () => {
     try { localStorage.setItem('greetingShownOnce', '1'); } catch {}
     const audio = new Audio('/assets/chacha-cahaudhary/Greeting.wav');
     let played = false;
-    const playGreeting = () => {
+    // Only dispatch the chatbot-voice activation when the greeting was triggered
+    // by an explicit user interaction (click/keydown). If the browser allows
+    // autoplay and the audio plays on page load, do not send the "hello" request
+    // to the backend to avoid unnecessary calls on page refresh.
+    const playGreeting = (userInitiated = false) => {
       if (!played) {
         played = true;
         audio.play().catch(() => {});
-        setTimeout(() => window.dispatchEvent(new CustomEvent('activate-chatbot-voice', { detail: { message: 'hello' } })), 1500);
-        window.removeEventListener('click', playGreeting);
-        window.removeEventListener('keydown', playGreeting);
+        if (userInitiated) {
+          // dispatch only for user-initiated activations
+          setTimeout(() => window.dispatchEvent(new CustomEvent('activate-chatbot-voice', { detail: { message: 'hello', userInitiated: true } })), 1500);
+        }
+        window.removeEventListener('click', clickHandler);
+        window.removeEventListener('keydown', clickHandler);
       }
     };
+
+    const clickHandler = () => playGreeting(true);
+
+    // Try to autoplay; if autoplay is blocked, wait for user interaction and
+    // then trigger the greeting (this will dispatch the chatbot activation).
     audio.play().catch(() => {
-      window.addEventListener('click', playGreeting);
-      window.addEventListener('keydown', playGreeting);
+      window.addEventListener('click', clickHandler);
+      window.addEventListener('keydown', clickHandler);
     });
     return () => {
       audio.pause();

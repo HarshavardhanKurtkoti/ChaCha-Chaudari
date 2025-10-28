@@ -12,6 +12,8 @@ const defaultSettings = {
   ttsRate: 150,
   // Language hint passed to backend to improve pronunciation choices
   ttsLang: 'en-IN',
+  // Animation quality for particle effects on Chat page: 'high' | 'low' | 'off'
+  animationQuality: 'high',
 };
 
 const SettingsContext = createContext({ settings: defaultSettings, setSetting: () => {} });

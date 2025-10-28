@@ -1,0 +1,227 @@
+/* Gradient animated background for Chat page */
+
+.chat-gradient-background {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;               /* clip any blurs/particles to the rounded container */
+  border-radius: inherit;          /* match the parent's rounded corners */
+  pointer-events: none;
+  /* helps browsers clip filter/blur correctly within radius */
+  contain: paint;
+}
+
+.chat-gradient-background .gradient-sphere {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(60px);
+  will-change: transform;
+}
+
+.chat-gradient-background .sphere-1 {
+  width: 40vw;
+  height: 40vw;
+  /* Changed to a cooler blue/purple gradient to remove strong red tint on the left side */
+  background: linear-gradient(40deg, rgba(72, 0, 255, 0.62), rgba(0, 183, 255, 0.22));
+  top: -10%;
+  left: -10%;
+  animation: float-1 15s ease-in-out infinite alternate;
+}
+
+.chat-gradient-background .sphere-2 {
+  width: 45vw;
+  height: 45vw;
+  background: linear-gradient(240deg, rgba(72, 0, 255, 0.8), rgba(0, 183, 255, 0.4));
+  bottom: -20%;
+  right: -10%;
+  animation: float-2 18s ease-in-out infinite alternate;
+}
+
+.chat-gradient-background .sphere-3 {
+  /* Removed the third sphere to eliminate the prominent blue band over the model */
+  display: none !important;
+}
+
+.chat-gradient-background .noise-overlay {
+  position: absolute;
+  inset: 0;
+  opacity: 0.04;
+  z-index: 5;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+}
+
+@keyframes float-1 {
+  0% { transform: translate(0,0) scale(1); }
+  100% { transform: translate(10%,10%) scale(1.1); }
+}
+@keyframes float-2 {
+  0% { transform: translate(0,0) scale(1); }
+  100% { transform: translate(-10%,-5%) scale(1.15); }
+}
+@keyframes float-3 {
+  0% { transform: translate(0,0) scale(1); opacity: 0.3; }
+  100% { transform: translate(-5%,10%) scale(1.05); opacity: 0.6; }
+}
+
+.chat-gradient-background .grid-overlay {
+  position: absolute; inset: 0; z-index: 2; pointer-events: none;
+  background-size: 40px 40px;
+  background-image: linear-gradient(to right, rgba(255,255,255,0.02) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.02) 1px, transparent 1px);
+}
+
+.chat-gradient-background .glow {
+  position: absolute; width: 40vw; height: 40vh; background: radial-gradient(circle, rgba(72,0,255,0.15), transparent 70%); top: 50%; left: 50%; transform: translate(-50%,-50%); z-index: 2; filter: blur(30px); animation: pulse 8s infinite alternate;
+}
+@keyframes pulse { 0% { opacity: 0.3; transform: translate(-50%,-50%) scale(0.9);} 100% { opacity: 0.7; transform: translate(-50%,-50%) scale(1.1);} }
+
+.chat-gradient-background .particles-container { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
+/* Canvas renderer for particles (preferred). Fallback DOM particles still harmless but canvas is used when available. */
+.particles-canvas { position: absolute; inset: 0; z-index: 3; pointer-events: none; width: 100%; height: 100%; display: block; border-radius: inherit; }
+
+/* visual tweak so main chat content sits above background */
+.main-chat-wrapper { position: relative; z-index: 10; }
+
+/* ensure overlays inherit the clip too */
+.chat-gradient-background .grid-overlay,
+.chat-gradient-background .glow,
+.chat-gradient-background .noise-overlay {
+  border-radius: inherit;
+}
+
+/* =========================
+   Layout shells per sketch
+   ========================= */
+.chat-shell{ 
+  background: rgba(8,12,20,0.55);
+  border: 1px solid rgba(255,255,255,0.06);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.55);
+  border-radius: 28px;
+  padding: 16px;
+  display:flex; 
+  flex-direction:column;
+  /* use a predictable, responsive height to avoid layout jumps
+    Increased slightly for more vertical space on typical screens */
+  height: min(78vh, 780px);
+  max-width: calc(100% - 80px);
+  margin: 0 auto;
+}
+.chat-grid{ display:grid; grid-template-columns: 320px 1fr; gap:16px; flex:1; min-height:0; align-items:stretch; }
+@media (max-width: 1024px){ .chat-grid{ grid-template-columns: 260px 1fr; } }
+@media (max-width: 768px){ .chat-grid{ grid-template-columns: 1fr; } }
+
+.left-rail{
+  background: rgba(15,23,42,0.6);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 22px;
+  padding: 12px;
+  display:flex; align-items:center; justify-content:center;
+  overflow: hidden; /* keep model inside */
+}
+.left-rail { flex: 0 0 320px; }
+.left-rail .model-holder{ width:100%; height:100%; min-height: 0; border-radius: 16px; overflow:hidden; position: relative; }
+.left-rail .model-holder > div { width:100% !important; height:100% !important; }
+.left-rail .model-holder canvas,
+.left-rail .model-holder img,
+.left-rail .model-holder video{ width:100% !important; height:100% !important; display:block; object-fit: contain; }
+
+.right-panel{ 
+  background: rgba(15,23,42,0.6);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 22px;
+  padding: 14px; 
+  display:flex; flex-direction:column; flex:1; min-height:0;
+}
+
+.messages-card{ 
+  background: rgba(9,14,24,0.65);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 18px;
+  flex:1; 
+  min-height:0; /* allow flex child to shrink and for overflow to work */
+  overflow-y:auto;
+}
+
+/* input row spacing inside right panel */
+.chat-box-input-field{ position: relative; left:auto; right:auto; bottom:auto; }
+.chat-box-input-field .chat-pill{ border-radius: 16px !important; }
+
+/* Small mouse-interaction easing for spheres (transition) */
+.chat-gradient-background .gradient-sphere { transition: transform 0.6s ease; }
+
+/* Chat input styling override to match the design in the screenshots
+   Removes any red-ish focus colors and applies a subtle purple focus ring */
+.chat-input {
+  background: rgba(15, 23, 42, 0.78) !important; /* dark slate */
+  border: 1px solid rgba(255,255,255,0.06) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.02);
+  color: #e6eef8 !important;
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 120ms ease;
+  border-radius: 14px !important;
+}
+.chat-input::placeholder { color: rgba(255,255,255,0.38) !important; }
+.chat-input:focus {
+  outline: none !important;
+  border-color: rgba(139, 92, 246, 0.9) !important; /* purple */
+  box-shadow: 0 6px 18px rgba(2,6,23,0.6), 0 0 0 6px rgba(139,92,246,0.06);
+}
+.chat-input[disabled] {
+  opacity: 0.6; filter: none;
+}
+
+/* Strong, high-specificity pill input styles to match screenshots. These use
+   specific selectors and !important to override utility classes (Tailwind)
+   and ensure consistent appearance across environments. */
+.chat-box-input-field .chat-pill-container { display:flex; justify-content:center; }
+.chat-box-input-field .chat-pill { display:flex; align-items:center; gap:12px; width:100%; max-width:920px; background: rgba(20,24,30,0.72) !important; border-radius: 999px !important; padding: 10px 14px !important; box-shadow: 0 6px 20px rgba(2,6,23,0.6) !important; border: 1px solid rgba(255,255,255,0.04) !important; backdrop-filter: blur(6px) saturate(120%) !important; }
+.chat-box-input-field .chat-pill__left { flex:0 0 44px; height:44px; display:flex; align-items:center; justify-content:center; border-radius:999px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.03); color: rgba(255,255,255,0.9); font-weight:600; cursor:pointer; }
+.chat-box-input-field .chat-pill__plus { font-size:20px; line-height:1; }
+.chat-box-input-field .chat-pill__input-wrap { flex:1 1 auto; min-width:0; display:flex; align-items:center; }
+.chat-box-input-field .chat-pill__input { width:100%; border:0 !important; background: transparent !important; color: #e6eef8 !important; font-size:16px; padding: 8px 12px !important; outline: none !important; box-shadow: none !important; }
+.chat-box-input-field .chat-pill__input::placeholder { color: rgba(255,255,255,0.38) !important; }
+.chat-box-input-field .chat-pill__input:focus { outline: none !important; box-shadow: 0 6px 18px rgba(2,6,23,0.6), 0 0 0 6px rgba(139,92,246,0.06) !important; }
+
+/* inline waveform when recording */
+.chat-box-input-field .chat-pill__waveform { display:flex; align-items:flex-end; gap: 6px; height:34px; width:100%; }
+.chat-box-input-field .chat-pill__waveform > div { width:6px; background: linear-gradient(180deg,#d1d5f0,#6b21a8); border-radius: 3px; transition: height 80ms linear, opacity 80ms linear; }
+
+.chat-box-input-field .chat-pill__actions { display:flex; gap:10px; align-items:center; flex:0 0 auto; }
+.chat-box-input-field .chat-pill__mic { width:44px; height:44px; display:flex; align-items:center; justify-content:center; border-radius:999px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); color: #e6eef8; cursor:pointer; }
+.chat-box-input-field .chat-pill__mic.active { background: linear-gradient(90deg, rgba(59,130,246,1), rgba(99,102,241,1)); color: white; border-color: rgba(59,130,246,0.9) !important; box-shadow: 0 6px 18px rgba(59,130,246,0.18); }
+.chat-box-input-field .chat-pill__send { min-width:64px; height:40px; padding: 6px 14px; border-radius: 8px; background: rgba(45,55,72,0.9); color: #e6eef8; border: 1px solid rgba(255,255,255,0.04); font-weight:600; cursor:pointer; }
+.chat-box-input-field .chat-pill__send[disabled] { opacity:0.45; cursor: not-allowed; }
+.chat-box-input-field .chat-pill__send:active { transform: translateY(1px); }
+
+/* Ensure input caret and selection are visible */
+.chat-box-input-field .chat-pill__input { caret-color: #8b5cf6 !important; }
+
+/* Responsive adjustments */
+@media (max-width: 640px) {
+  .chat-box-input-field { left:12px; right:12px; }
+  .chat-box-input-field .chat-pill { padding: 8px 10px !important; }
+  .chat-box-input-field .chat-pill__left, .chat-box-input-field .chat-pill__mic { width:40px; height:40px; }
+}
+
+/* Extremely explicit override for edge cases where Tailwind utility adds outline */
+input.chat-pill__input:focus { outline: none !important; box-shadow: 0 6px 18px rgba(2,6,23,0.6), 0 0 0 6px rgba(139,92,246,0.06) !important; border: none !important; }
+
+/* 3D model pill wrapper - make the Chacha model container look like the chat pill */
+.chacha-3d-pill {
+  background: rgba(15,23,42,0.72) !important; /* dark translucent */
+  border: 1px solid rgba(255,255,255,0.04) !important;
+  box-shadow: 0 10px 40px rgba(2,6,23,0.7) !important;
+  border-radius: 24px !important;
+  padding: 6px !important;
+  backdrop-filter: blur(6px) saturate(120%) !important;
+  z-index: 25; /* ensure it sits above background canvas */
+}
+.chacha-3d-pill canvas { display:block; }
+
+/* Slight inner glow similar to input */
+.chacha-3d-pill::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: 24px;
+  box-shadow: inset 0 2px 10px rgba(0,0,0,0.45);
+}

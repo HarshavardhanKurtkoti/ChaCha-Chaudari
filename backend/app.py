@@ -31,6 +31,7 @@ os.environ.setdefault("TRANSFORMERS_NO_TORCHVISION", "1")
 os.environ.setdefault("NUMBA_DISABLE_JIT", "1")
 os.environ.setdefault("FLASK_ENV", "production")
 os.environ.setdefault("FLASK_DEBUG", "0")
+os.environ.setdefault("MODEL_REPO_LOCAL_ONLY", "1")  # default to local-only model loading
 
 # Stub out librosa to avoid importing numba during transformers import path
 # We don't use audio features, but transformers imports audio_utils which tries to import librosa.
@@ -176,7 +177,32 @@ except Exception as _tx_err:
 # Deprecated: AssistantVoice for edge-tts (kept for compatibility); Piper uses voice id instead
 AssistantVoice = env_vars.get('AssistantVoice', '')
 InputLanguage = env_vars.get('InputLanguage', 'en')
-MODEL_REPO = './Llama-2-7b-chat-hf'
+# Prefer fully local model usage by default. You can override via env MODEL_REPO.
+# Default local path points to a Phi-3-mini instruct model downloaded under backend/models/.
+# Set MODEL_REPO_LOCAL_ONLY=1 to prevent any network fetches during from_pretrained.
+os.environ.setdefault('HF_HUB_OFFLINE', '1')  # enforce offline cache/local paths by default
+MODEL_REPO = (
+    os.environ.get('MODEL_REPO')
+    or env_vars.get('MODEL_REPO')
+    or os.path.join(os.getcwd(), 'models', 'phi-3-mini-4k-instruct')
+)
+
+# Welcome message configuration for first-load UX
+WELCOME_TRIGGER_TEXT = (
+    os.environ.get('WELCOME_TRIGGER_TEXT')
+    or env_vars.get('WELCOME_TRIGGER_TEXT')
+    or "hello, i'm interested in learning about the namami gange programme."
+).strip().lower()
+WELCOME_MESSAGE = (
+    os.environ.get('WELCOME_MESSAGE')
+    or env_vars.get('WELCOME_MESSAGE')
+    or (
+        "Namaste! I’m ChaCha. I can help you explore the Namami Gange Programme — "
+        "what it is, how it cleans the Ganga, real projects in cities, and simple ways you can help. "
+        "Ask me anything, or say ‘give me a quick overview’."
+    )
+)
+WELCOME_AUTOTTS = (os.environ.get('WELCOME_AUTOTTS') or env_vars.get('WELCOME_AUTOTTS') or '1').strip().lower() in ('1','true','yes')
 
 # Ensure Data dir
 DATA_DIR = os.path.join(os.getcwd(), 'Data')
@@ -377,15 +403,103 @@ if os.environ.get('SKIP_LLM_LOAD', env_vars.get('SKIP_LLM_LOAD', '')).strip() no
             try:
                 if repo_path:
                     logger.info(f"Attempting to load LLM from local path '{repo_path}'")
-                    tokenizer = AutoTokenizer.from_pretrained(repo_path, use_fast=True, local_files_only=True)
-                    llm = AutoModelForCausalLM.from_pretrained(repo_path, device_map='auto', trust_remote_code=True, local_files_only=True)
                 else:
                     if model_repo_local_only:
                         logger.info(f"MODEL_REPO_LOCAL_ONLY set and local path '{MODEL_REPO}' not found; skipping LLM load")
                     else:
                         logger.info(f"Attempting to load LLM from '{MODEL_REPO}' (network fetch allowed). Set MODEL_REPO_LOCAL_ONLY=1 to avoid network fetches.")
-                        tokenizer = AutoTokenizer.from_pretrained(MODEL_REPO, use_fast=True)
-                        llm = AutoModelForCausalLM.from_pretrained(MODEL_REPO, device_map='auto', trust_remote_code=True)
+                        repo_path = MODEL_REPO
+
+                # If repo_path is set (either local path or resolved MODEL_REPO), attempt to load tokenizer + model.
+                if repo_path:
+                    try:
+                        tokenizer = AutoTokenizer.from_pretrained(repo_path, use_fast=True, local_files_only=True)
+                    except Exception:
+                        logger.exception('Failed to load tokenizer from %s; retrying without local_files_only', repo_path)
+                        try:
+                            tokenizer = AutoTokenizer.from_pretrained(repo_path, use_fast=True)
+                        except Exception:
+                            logger.exception('Tokenizer load failed; aborting LLM load')
+                            tokenizer = None
+
+                    # Detect CUDA and bitsandbytes availability
+                    has_cuda = False
+                    bnb_available = False
+                    try:
+                        import torch as _torch
+                        has_cuda = bool(_torch.cuda.is_available())
+                    except Exception:
+                        has_cuda = False
+                    try:
+                        import bitsandbytes as _bnb  # type: ignore
+                        bnb_available = True
+                    except Exception:
+                        bnb_available = False
+                    use_bnb_env = (os.environ.get('LLAMA_USE_BNB') or env_vars.get('LLAMA_USE_BNB') or '').strip().lower()
+                    allow_bnb = use_bnb_env not in ('0', 'false', 'no')
+
+                    # Try bitsandbytes 4-bit load only when CUDA + bitsandbytes are available and allowed
+                    primary_loaded = False
+                    if allow_bnb and has_cuda and bnb_available and BitsAndBytesConfig is not None:
+                        try:
+                            import torch as _torch
+                            bnb_cfg = BitsAndBytesConfig(
+                                load_in_4bit=True,
+                                bnb_4bit_compute_dtype=_torch.float16,
+                                bnb_4bit_use_double_quant=True,
+                                bnb_4bit_quant_type="nf4",
+                            )
+                            logger.info('Attempting quantized 4-bit load (bitsandbytes) from %s', repo_path)
+                            llm = AutoModelForCausalLM.from_pretrained(
+                                repo_path,
+                                quantization_config=bnb_cfg,
+                                device_map='auto',
+                                trust_remote_code=True,
+                                local_files_only=True,
+                                attn_implementation='eager',
+                            )
+                            primary_loaded = True
+                        except Exception:
+                            logger.exception('BNB 4-bit load failed; will try standard load next')
+
+                    if not primary_loaded:
+                        # Standard load: prefer CUDA if available else CPU
+                        try:
+                            device_map_choice = 'auto' if has_cuda else 'cpu'
+                            logger.info('Loading standard model from %s (device_map=%s)', repo_path, device_map_choice)
+                            torch_dtype_kw = {}
+                            try:
+                                if has_cuda:
+                                    import torch as _torch
+                                    torch_dtype_kw = { 'torch_dtype': _torch.float16 }
+                            except Exception:
+                                torch_dtype_kw = {}
+                            llm = AutoModelForCausalLM.from_pretrained(
+                                repo_path,
+                                device_map=device_map_choice,
+                                trust_remote_code=True,
+                                local_files_only=True,
+                                attn_implementation='eager',
+                                low_cpu_mem_usage=True,
+                                **torch_dtype_kw,
+                            )
+                            primary_loaded = True
+                        except Exception:
+                            logger.exception('Standard load failed; trying CPU-forced fallback')
+                            try:
+                                import torch as _torch
+                                llm = AutoModelForCausalLM.from_pretrained(
+                                    repo_path,
+                                    device_map='cpu',
+                                    trust_remote_code=True,
+                                    local_files_only=True,
+                                    torch_dtype=_torch.float32,
+                                    low_cpu_mem_usage=True,
+                                )
+                                primary_loaded = True
+                            except Exception:
+                                logger.exception('CPU-forced fallback also failed; skipping LLM')
+                                llm = None
 
                 if llm is not None:
                     try:
@@ -438,6 +552,52 @@ def _preload_tts_async():
 # ---------------------------
 # Fallback story builders
 # ---------------------------
+def _is_chunk_readable(txt: str) -> bool:
+    """Heuristic: prefer prose-like chunks, avoid tables/lists.
+    - Enough letters vs digits
+    - Contains sentence punctuation
+    - Not dominated by dashes/slashes
+    """
+    try:
+        s = (txt or "").strip()
+        if not s:
+            return False
+        n = len(s)
+        letters = sum(ch.isalpha() for ch in s)
+        digits = sum(ch.isdigit() for ch in s)
+        dashes = s.count('-') + s.count('—')
+        slashes = s.count('/')
+        punct_ok = any(p in s for p in ('.', '!', '?'))
+        if n < 60:
+            return False
+        if letters / max(1, n) < 0.5:
+            return False
+        if digits / max(1, n) > 0.25:
+            return False
+        if (dashes + slashes) / max(1, n) > 0.04:
+            return False
+        return punct_ok
+    except Exception:
+        return False
+
+def _clean_snippet(txt: str, max_len: int = 350) -> str:
+    try:
+        s = " ".join((txt or "").split())
+        return s[:max_len]
+    except Exception:
+        return (txt or "")[:max_len]
+
+def _kid_story_fallback(topic: str | None) -> str:
+    """Short story-style fallback for kids when RAG is weak or model is missing."""
+    t = (topic or "the Ganga river").strip()
+    core = (
+        "I couldn't find this in my local notes; here’s a simple story to explain it. "
+        "One evening by the Ganga, Asha and her cousin Rohan watched the water sparkle near their ghat. "
+        "They noticed a few plastic cups floating and decided to pick them up. A fisherman smiled and said, ‘When we keep the river clean, fish and dolphins stay healthy, and our towns do better too.’ "
+        "Next day, their class put up a little sign: ‘Please use the dustbin — our river is family.’ "
+        "That tiny action made the steps look nicer, and more people started helping. Would you like a tiny tip on how kids can care for the river?"
+    )
+    return core
 def _conversational_fallback(topic: str, name: str | None, age_group: str | None, history: list[dict] | None) -> str:
     """Heuristic, natural-sounding fallback when LLM isn't available.
     - Warmer tone, short and human.
@@ -938,6 +1098,63 @@ def create_app():
             'db_mode': 'memory' if _USING_IN_MEMORY_DB else 'mongo'
         })
 
+    @app.route('/llm-diagnostic', methods=['GET'])
+    def llm_diagnostic():
+        """Return detailed diagnostics about LLM loading/config without forcing a reload."""
+        info = {
+            'transformers_available': _TRANSFORMERS_AVAILABLE,
+            'llm_ready': tokenizer is not None and llm is not None,
+            'llm_device': _LLM_DEVICE,
+            'env': {
+                'SKIP_LLM_LOAD': os.environ.get('SKIP_LLM_LOAD') or env_vars.get('SKIP_LLM_LOAD'),
+                'LLAMA_FORCE_FALLBACK': os.environ.get('LLAMA_FORCE_FALLBACK'),
+                'LLAMA_USE_BNB': os.environ.get('LLAMA_USE_BNB') or env_vars.get('LLAMA_USE_BNB'),
+                'MODEL_REPO': os.environ.get('MODEL_REPO') or env_vars.get('MODEL_REPO'),
+                'MODEL_REPO_LOCAL_ONLY': os.environ.get('MODEL_REPO_LOCAL_ONLY') or env_vars.get('MODEL_REPO_LOCAL_ONLY'),
+                'HF_HUB_OFFLINE': os.environ.get('HF_HUB_OFFLINE'),
+            }
+        }
+        # Resolve repository path and basic file checks
+        try:
+            repo_hint = (os.environ.get('MODEL_REPO') or env_vars.get('MODEL_REPO') or os.path.join(os.getcwd(), 'models', 'phi-3-mini-4k-instruct'))
+            repo_path = None
+            if isinstance(repo_hint, str) and (repo_hint.startswith('.') or os.path.isabs(repo_hint) or os.path.sep in repo_hint):
+                cand = os.path.abspath(repo_hint)
+                if os.path.isdir(cand):
+                    repo_path = cand
+            info['resolved_repo_path'] = repo_path
+            if repo_path:
+                try:
+                    files = os.listdir(repo_path)
+                    key_files = ['config.json', 'tokenizer.json', 'tokenizer.model', 'model.safetensors.index.json', 'pytorch_model.bin.index.json']
+                    present = {kf: (kf in files) for kf in key_files}
+                    info['repo_files_present'] = present
+                    info['repo_file_count'] = len(files)
+                except Exception as e:
+                    info['repo_list_error'] = str(e)
+        except Exception as e:
+            info['repo_resolve_error'] = str(e)
+
+        # Torch + CUDA status
+        try:
+            import torch as _torch  # type: ignore
+            info['torch'] = {
+                'version': getattr(_torch, '__version__', None),
+                'cuda_available': bool(_torch.cuda.is_available()),
+                'cuda_version': getattr(getattr(_torch, 'version', None), 'cuda', None),
+            }
+        except Exception as e:
+            info['torch_error'] = str(e)
+
+        # Bitsandbytes availability
+        try:
+            import bitsandbytes as _bnb  # type: ignore
+            info['bitsandbytes'] = {'available': True, 'version': getattr(_bnb, '__version__', None)}
+        except Exception as e:
+            info['bitsandbytes'] = {'available': False, 'error': str(e)}
+
+        return jsonify(info)
+
     @app.route('/llama-chat', methods=['GET', 'POST', 'OPTIONS'])
     def llama_chat():
         req_start = time.time()
@@ -1021,42 +1238,68 @@ def create_app():
             # Trim to last few messages
             history = history[-8:]
 
-            # Lightweight intent: special-case simple greetings
+            # Lightweight intent: special-case simple greetings and welcome message
+            kid_greeting_story = False
             simple = (prompt or '').strip().lower()
-            if simple in ("hi", "hello", "hey", "yo", "hola", "namaste"):
-                # For kids, expand the fallback to a multi-paragraph mini story with an outcome
-                base = _conversational_fallback(prompt, user_name, age_group, history)
-                if (age_group or '').strip().lower() == 'kid':
+            # Welcome detection: explicit flag or trigger text match
+            is_welcome = False
+            try:
+                wflag = data.get('welcome') or data.get('isWelcome') or data.get('is_welcome')
+                if isinstance(wflag, bool):
+                    is_welcome = wflag
+            except Exception:
+                is_welcome = False
+            if not is_welcome:
+                # match against configured trigger text (ignoring punctuation/case)
+                def _norm(s: str) -> str:
+                    return ''.join(ch for ch in s.lower() if ch.isalnum() or ch.isspace()).strip()
+                is_welcome = _norm(simple) == _norm(WELCOME_TRIGGER_TEXT)
+            if is_welcome:
+                # Return a warm, pre-crafted welcome with optional TTS
+                result = WELCOME_MESSAGE
+                audio_url = None
+                if WELCOME_AUTOTTS:
                     try:
-                        topic = (prompt or '').strip()
-                        name = (user_name or 'friend').strip()
-                        para1 = (
-                            f"Imagine {name} and I visit a small riverside town. The riverbank is bare, and after each rain the soil slides into the water, making it brown and gloomy."
-                        )
-                        para2 = (
-                            f"We talk with neighbors about {topic}. Together we plant native saplings, add simple fences to protect young trees, and place bins so wind can’t carry trash into the river."
-                        )
-                        para3 = (
-                            f"Weeks later, the roots hold the soil, the water turns clearer, and tiny fish return. Children spot a kingfisher diving — a sign the river is healing."
-                        )
-                        moral = (
-                            f"That’s how {topic} works in real life — small steps, done together, create a big, happy change. Would you like to imagine what we can do next at your river?"
-                        )
-                        result = f"{base}\n\n{para1}\n\n{para2}\n\n{para3}\n\n{moral}"
+                        out_path = unique_filename('speech', 'wav')
+                        wav_path = tts_local_basic(result, out_path=out_path, voice=data.get('voice') or None) if _EDGE_LOCAL_AVAILABLE else generate_tts_file(result)
+                        filename = os.path.basename(wav_path)
+                        audio_url = f"/generated_audio/{filename}"
                     except Exception:
-                        result = base
-                else:
-                    result = base
+                        logger.exception('Welcome TTS failed')
                 latency_ms = int((time.time() - req_start) * 1000)
-                return jsonify({
+                resp = {
                     "result": result,
                     "retrieved_count": 0,
+                    "rag_score": None,
+                    "source": "general",
                     "temperature": 0.0,
                     "top_p": 1.0,
                     "used_max_new_tokens": 0,
                     "latency_ms": latency_ms,
                     "wants_long": False,
-                })
+                    "llm_used": False,
+                }
+                if audio_url:
+                    resp['audio_url'] = audio_url
+                return jsonify(resp)
+
+            if simple in ("hi", "hello", "hey", "yo", "hola", "namaste"):
+                # For kids, let the LLM craft a short story instead of a hardcoded template
+                if (age_group or '').strip().lower() == 'kid' and not (force_fallback or model_missing):
+                    kid_greeting_story = True  # handled later in persona
+                else:
+                    # Use quick fallback for non-kid or when model is unavailable/forced fallback
+                    base = _conversational_fallback(prompt, user_name, age_group, history)
+                    latency_ms = int((time.time() - req_start) * 1000)
+                    return jsonify({
+                        "result": base,
+                        "retrieved_count": 0,
+                        "temperature": 0.0,
+                        "top_p": 1.0,
+                        "used_max_new_tokens": 0,
+                        "latency_ms": latency_ms,
+                        "wants_long": False,
+                    })
             # 1) Retrieve context (cheap)
             query_emb = embedder.encode([prompt])
             # ensure numpy array with shape (1, D)
@@ -1064,7 +1307,23 @@ def create_app():
             if query_arr.ndim == 1:
                 query_arr = np.expand_dims(query_arr, 0)
             D, I = index.search(query_arr, k=3)
-            retrieved_chunks = [chunks[i] for i in I[0] if i < len(chunks)]
+            retrieved_chunks = [chunks[i] for i in I[0] if 0 <= i < len(chunks)]
+
+            # Estimate similarity score of the top hit (robust across SimpleIndex and FAISS)
+            rag_score = None
+            try:
+                if D is not None and len(D) > 0 and len(D[0]) > 0:
+                    d0 = float(D[0][0])
+                    # SimpleIndex returns D ~= 1 - cos_sim (0..1). FAISS L2 on normalized vectors ~ 2*(1 - cos)
+                    if 0.0 <= d0 <= 1.0:
+                        rag_score = max(0.0, min(1.0, 1.0 - d0))
+                    elif 0.0 <= d0 <= 2.0:
+                        rag_score = max(0.0, min(1.0, 1.0 - (d0 / 2.0)))
+            except Exception:
+                rag_score = None
+
+            # Treat score >= 0.70 as reliable RAG hit (stricter to avoid bad chunks from hash embeddings)
+            rag_reliable = bool(retrieved_chunks) and (rag_score is not None and rag_score >= 0.70)
             context = "\n\n---\n\n".join(retrieved_chunks) if retrieved_chunks else ""
 
             # Hard cap context size to avoid excessive input length
@@ -1078,17 +1337,33 @@ def create_app():
                 persona_lines.append(f"The user's name is {user_name}.")
             # Natural, human-style guidance by age
             persona_lines.append("Speak as ChaCha in first person (I/me), natural and warm, like a real human conversation.")
-            if age_group == 'kid':
-                persona_lines.append("Use simple, positive language and create a longer explanation with a short story example.")
-                persona_lines.append("Structure: briefly explain the idea, then tell a small story showing what happens (setting → action → outcome), and end with one friendly question.")
-                persona_lines.append("Avoid headings and lists; write in 3–5 short paragraphs so it’s easy to follow.")
+            # Decide kid story mode only when appropriate, not always
+            use_kid_story = False
+            if (age_group == 'kid'):
+                # Heuristics: greeting story, conceptual questions (why/how/what), or weak RAG
+                lt_prompt = (prompt or '').strip().lower()
+                if ('kid_greeting_story' in locals() and kid_greeting_story) or any(
+                    kw in lt_prompt for kw in ('why', 'how', 'what is', 'tell me', 'story')
+                ) or not rag_reliable:
+                    use_kid_story = True
+                if use_kid_story:
+                    persona_lines.append("Use simple, positive language and create a short story example appropriate for kids.")
+                    persona_lines.append("Structure: briefly explain the idea, then tell a small story (setting → action → outcome), and end with one friendly question.")
+                    persona_lines.append("Keep it ~80–140 words, vivid but simple; prefer familiar Indian names/places and Ganga context when it fits naturally.")
+                    persona_lines.append("Avoid headings and lists; write in 3–5 short paragraphs so it’s easy to follow.")
+                else:
+                    persona_lines.append("Use simple, positive language; explain in 1–2 short paragraphs with one concrete example. Avoid lists unless asked.")
             elif age_group == 'teen':
                 persona_lines.append("Keep it concise, friendly, and practical — one or two short paragraphs.")
             else:
                 persona_lines.append("Be concise and conversational; avoid lists unless explicitly asked.")
             persona_lines.append("When appropriate, end with one short follow-up question to keep the chat flowing.")
             persona_lines.append("Do not include role labels or markdown headings in the reply.")
-            persona_lines.append("If the context below is thin, still answer helpfully using safe, widely-known facts.")
+            # Sourcing guidance (keep replies conversational; no disclaimers in text)
+            if rag_reliable:
+                persona_lines.append("Use the context below as your primary source. If you add general knowledge, keep it minimal and integrated naturally.")
+            else:
+                persona_lines.append("Context appears weak or missing. Answer from general knowledge clearly and helpfully without apologies or disclaimers.")
 
             system_preface = "\n".join(persona_lines)
 
@@ -1118,11 +1393,47 @@ def create_app():
             # 2) If forced fallback or model missing, return a quick templated answer
             if force_fallback or model_missing:
                 logger.info(f"/llama-chat: using fallback (force={force_fallback}, model_missing={model_missing}, age_group={age_group})")
-                result = _conversational_fallback(prompt, user_name, age_group, history)
+                # Prefer a RAG-first handcrafted reply if we have usable context, else a clean kid/general fallback
+                result = None
+                if retrieved_chunks:
+                    try:
+                        top = (retrieved_chunks[0] or '').strip()
+                        readable = _is_chunk_readable(top)
+                        if age_group == 'kid':
+                            if rag_reliable and readable:
+                                snippet = _clean_snippet(top)
+                                result = (
+                                    f"Based on our local notes: {snippet}\n\nWould you like a short story or a simple example next?"
+                                )
+                            else:
+                                result = _kid_story_fallback(prompt)
+                        else:
+                            if rag_reliable and readable:
+                                snippet = _clean_snippet(top)
+                                result = (
+                                    f"Based on our local notes: {snippet}\n\nWant me to expand or give a quick example?"
+                                )
+                            elif readable:
+                                snippet = _clean_snippet(top)
+                                result = (
+                                    "I couldn't find this clearly in my local notes; here’s what I do have: "
+                                    f"{snippet}\n\nIf helpful, I can give a broader general explanation."
+                                )
+                            else:
+                                result = None
+                    except Exception:
+                        result = None
+                if not result:
+                    if age_group == 'kid':
+                        result = _kid_story_fallback(prompt)
+                    else:
+                        result = _conversational_fallback(prompt, user_name, age_group, history)
                 latency_ms = int((time.time() - req_start) * 1000)
                 return jsonify({
                     "result": result,
                     "retrieved_count": len(retrieved_chunks),
+                    "rag_score": float(rag_score) if rag_score is not None else None,
+                    "source": "rag" if rag_reliable else "general",
                     "temperature": 0.0,
                     "top_p": 1.0,
                     "used_max_new_tokens": 0,
@@ -1130,20 +1441,40 @@ def create_app():
                     "wants_long": False,
                 })
 
-            # 3) Tune generation conservatively, especially on CPU
+            # 3) Tune generation with latency-aware presets
+            # Speed preset: fast | balanced | quality
+            speed_preset = (os.environ.get('LLAMA_SPEED_PRESET') or env_vars.get('LLAMA_SPEED_PRESET') or 'balanced').strip().lower()
+            if speed_preset not in ('fast', 'balanced', 'quality'):
+                speed_preset = 'balanced'
+
+            # Base sampling settings
             temperature = 0.2
             top_p = 0.9
-            # Defaults can be overridden via environment
-            default_tokens = 64 if _LLM_DEVICE == 'cpu' else 128
-            max_new_tokens = int(os.environ.get("LLAMA_MAX_NEW_TOKENS", str(default_tokens)))
+
+            # Token budgets by device + preset
+            if _LLM_DEVICE == 'cpu':
+                preset_tokens = {'fast': 48, 'balanced': 72, 'quality': 104}
+                kid_tokens_map = {'fast': 100, 'balanced': 140, 'quality': 180}
+                teen_tokens_map = {'fast': 60, 'balanced': 80, 'quality': 100}
+                default_max_time = {'fast': 4.0, 'balanced': 6.0, 'quality': 8.0}[speed_preset]
+            else:  # cuda or other accelerators
+                preset_tokens = {'fast': 128, 'balanced': 196, 'quality': 320}
+                kid_tokens_map = {'fast': 200, 'balanced': 300, 'quality': 420}
+                teen_tokens_map = {'fast': 110, 'balanced': 160, 'quality': 220}
+                default_max_time = {'fast': 8.0, 'balanced': 14.0, 'quality': 22.0}[speed_preset]
+
+            default_tokens = preset_tokens[speed_preset]
+            max_new_tokens = int(os.environ.get('LLAMA_MAX_NEW_TOKENS', str(default_tokens)))
+
             if age_group == 'kid':
                 temperature = 0.7
-                # Kids want a much longer, story-like answer
-                kid_tokens = 320 if _LLM_DEVICE == 'cpu' else 600
-                max_new_tokens = max(max_new_tokens, kid_tokens)
+                kid_tokens = kid_tokens_map[speed_preset]
+                # Ensure at least kid_tokens but allow manual override to reduce further
+                max_new_tokens = min(max(max_new_tokens, kid_tokens), kid_tokens_map['quality'])
             elif age_group == 'teen':
                 temperature = 0.4
-                teen_tokens = 80 if _LLM_DEVICE == 'cpu' else 140
+                teen_tokens = teen_tokens_map[speed_preset]
+                # Teens should stay short even if override is large
                 max_new_tokens = min(max_new_tokens, teen_tokens)
 
             # Cap input token length as well to reduce memory
@@ -1170,7 +1501,15 @@ def create_app():
             ).to(llm.device)
 
             # Use no grad and optionally disable cache to keep memory low
+            # Default to deterministic on CPU to keep memory/use predictable, but
+            # enable sampling when caller requested non-zero temperature or top_p < 1.0
             do_sample = False if _LLM_DEVICE == 'cpu' else True
+            # If generation tuning requested non-deterministic behavior, honor it
+            if (temperature and float(temperature) > 0.0) or (top_p and float(top_p) < 1.0):
+                if _LLM_DEVICE == 'cpu':
+                    logger.info('Enabling sampling on CPU because temperature/top_p request sampling (temperature=%s top_p=%s)', temperature, top_p)
+                do_sample = True
+
             generate_kwargs = dict(
                 max_new_tokens=max_new_tokens,
                 do_sample=do_sample,
@@ -1180,7 +1519,7 @@ def create_app():
                 # Only pass sampling args when sampling is enabled to avoid warnings
                 generate_kwargs.update(temperature=temperature, top_p=top_p)
             # Limit wall-clock time for generation to avoid long blocking requests
-            max_time = float(os.environ.get('LLAMA_MAX_TIME', '10.0' if _LLM_DEVICE == 'cpu' else '20.0'))
+            max_time = float(os.environ.get('LLAMA_MAX_TIME', str(default_max_time)))
             if max_time > 0:
                 generate_kwargs['max_time'] = max_time
 
@@ -1191,11 +1530,83 @@ def create_app():
                 input_len = int(inputs["input_ids"].shape[1])
                 gen_tokens = output[0][input_len:]
                 result = tokenizer.decode(gen_tokens, skip_special_tokens=True).strip()
+                # If generation hit the token/time cap (likely truncated), attempt one safe continuation
+                try:
+                    gen_token_count = int(gen_tokens.shape[0]) if hasattr(gen_tokens, 'shape') else None
+                except Exception:
+                    gen_token_count = None
+                # Heuristic: if we used up the max_new_tokens or the result ends abruptly
+                truncated_candidate = False
+                try:
+                    if gen_token_count is not None and max_new_tokens and gen_token_count >= max_new_tokens - 2:
+                        truncated_candidate = True
+                    elif result and result[-1] not in ('.', '!', '?') and len(result) > 40:
+                        # long answer that doesn't end with punctuation — may be truncated
+                        truncated_candidate = True
+                except Exception:
+                    truncated_candidate = False
+                if truncated_candidate and not (force_fallback or model_missing):
+                    try:
+                        logger.info('Generation likely truncated (used %s tokens of %s); attempting one continuation', gen_token_count, max_new_tokens)
+                        # Build a short continuation prompt that avoids labels and duplication
+                        continuation_system = (
+                            "Continue the previous assistant reply smoothly. "
+                            "Do not repeat any text already said. Do not add labels or headings. "
+                            "Finish the thought with complete sentences."
+                        )
+                        continuation_text = (
+                            f"{continuation_system}\n\nPrevious reply:\n{result}\n\nContinue:\n"
+                        )
+                        inputs2 = tokenizer(
+                            continuation_text,
+                            return_tensors="pt",
+                            truncation=True,
+                            max_length=max_input_tokens,
+                        ).to(llm.device)
+                        extra_kwargs = dict(generate_kwargs)
+                        # Allow a one-shot extra budget (capped) and slightly more time
+                        extra_budget = min(max(max_new_tokens * 2, 160), 512)
+                        extra_kwargs['max_new_tokens'] = extra_budget
+                        if max_time:
+                            extra_kwargs['max_time'] = float(max_time) * 1.5
+                        with no_grad_ctx():
+                            out2 = llm.generate(**inputs2, **extra_kwargs)
+                        input_len2 = int(inputs2["input_ids"].shape[1])
+                        gen2 = out2[0][input_len2:]
+                        cont_text = tokenizer.decode(gen2, skip_special_tokens=True).strip()
+                        if cont_text:
+                            # Append continuation (avoid duplicating overlapping text)
+                            result = (result + " " + cont_text).strip()
+                            logger.info('Continuation appended (len now=%d)', len(result))
+                    except Exception:
+                        logger.exception('Continuation generation failed; keeping original truncated result')
+                # Defensive: if model produced no new tokens, log diagnostics and fallback
+                if not result:
+                    try:
+                        # Try decoding the full output for debugging (may include prompt)
+                        full_decoded = tokenizer.decode(output[0], skip_special_tokens=True).strip()
+                    except Exception:
+                        full_decoded = None
+                    try:
+                        out_tokens = int(output[0].shape[1])
+                    except Exception:
+                        out_tokens = None
+                    logger.warning('Empty generation from LLM: input_len=%s output_tokens=%s full_decoded_preview=%r', input_len, out_tokens, (full_decoded or '')[:300])
+                    # Use safe fallback so clients aren't left with an empty result
+                    result = _conversational_fallback(prompt, user_name, age_group, history)
+                    logger.info('Applied conversational fallback due to empty generation; fallback_preview=%s', (result or '')[:200])
             except Exception as gen_err:
                 # Graceful fallback: short, friendly template answer to avoid request crash
                 logger.error(f"LLM generation failed, using fallback: {gen_err}")
                 result = _conversational_fallback(prompt, user_name, age_group, history)
-            logging.debug(f"Generated response: {result}")
+            # Keep responses conversational — do not inject sourcing disclaimers in user-facing text.
+            # We expose 'source' and 'rag_score' in metadata for the UI instead.
+            # Log the generated response at INFO so it's visible in typical server logs.
+            try:
+                preview = (result or '')[:200].replace('\n', ' ')
+            except Exception:
+                preview = '<unprintable>'
+            logger.info('Generated response (len=%d) preview: %s', len(result or ''), preview)
             latency_ms = int((time.time() - req_start) * 1000)
 
             # Optionally produce TTS for the assistant reply.
@@ -1231,11 +1642,14 @@ def create_app():
             resp = {
                 "result": result,
                 "retrieved_count": len(retrieved_chunks),
+                "rag_score": float(rag_score) if rag_score is not None else None,
+                "source": "rag" if rag_reliable else "general",
                 "temperature": round(float(temperature), 2),
                 "top_p": round(float(top_p), 2),
                 "used_max_new_tokens": int(max_new_tokens),
                 "latency_ms": latency_ms,
                 "wants_long": False,
+                "llm_used": not (force_fallback or model_missing),
             }
             if audio_url:
                 resp['audio_url'] = audio_url

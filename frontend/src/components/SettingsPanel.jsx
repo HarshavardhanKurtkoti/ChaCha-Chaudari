@@ -204,6 +204,21 @@ const SettingsPanel = ({ onResetProgress, onResetLeaderboard }) => {
         </div>
         <div className="text-xs text-gray-400 mt-1">Lower = slower, higher = faster. Adjust for clearer speech.</div>
       </div>
+      <div className="mt-3">
+        <label className="text-sm text-gray-200">Animation Quality</label>
+        <div className="flex items-center gap-2 mt-1">
+          <select
+            className="px-2 py-1 rounded bg-gray-700 text-gray-100 border border-gray-600 text-sm"
+            value={settings?.animationQuality ?? 'high'}
+            onChange={(e) => setSetting('animationQuality', e.target.value)}
+          >
+            <option value="high">High (rich particles)</option>
+            <option value="low">Low (lighter)</option>
+            <option value="off">Off</option>
+          </select>
+          <div className="text-xs text-gray-400 ml-2">Controls Chat page particle animations.</div>
+        </div>
+      </div>
       <div className="mt-2">
         <button className="px-3 py-1 text-sm rounded bg-blue-600 hover:bg-blue-500 text-white" onClick={playSample}>
           Play sample

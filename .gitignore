@@ -97,6 +97,9 @@ yarn-error.log*
 ############################
 Llama-2-7b-chat-hf/
 backend/Llama-2-7b-chat-hf/
+# Ignore downloaded local models directory
+backend/models/
+models/
 backend/Data/
 models/
 checkpoints/

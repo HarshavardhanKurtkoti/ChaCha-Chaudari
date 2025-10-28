@@ -1,6 +1,7 @@
 import { Fragment, useContext, useEffect, useRef, useState } from 'react';
 import { useSettings } from 'context/SettingsContext';
 import '../styles/hide-scrollbar.css';
+import './ChatBot.css';
 import { Welcome } from 'components';
 import { BsMic } from 'react-icons/bs';
 import { HiOutlineSpeakerWave, HiOutlineSpeakerXMark } from 'react-icons/hi2';
@@ -11,9 +12,11 @@ import SelectLang from 'components/SelectLang';
 import SpeechRecognition, { useSpeechRecognition } from 'react-speech-recognition';
 import axios from 'axios';
 import PropTypes from 'prop-types';
+import { ChachaCanvas } from './Bot';
 
 const ChatBot = ({ setIsSpeaking }) => {
 	const { settings } = useSettings();
+    const particleCanvasRef = useRef(null);
 	// Keep a ref to the latest ttsVoice so event handlers created on mount use
 	// the current selection (avoids stale closures).
 	const ttsVoiceRef = useRef(settings?.ttsVoice);
@@ -24,24 +27,162 @@ const ChatBot = ({ setIsSpeaking }) => {
 	// addMessage/getResponse/setIsSpeaking in deps to avoid re-wiring handlers repeatedly.
 	useEffect(() => {
 		const handler = (e) => {
-			if (e.detail && e.detail.message === 'hello') {
-				setAudio(true); // activate voice mode
-				addMessage('user', 'hello');
-				setState('waiting');
-				getResponse({ prompt: 'hello' }, '/llama-chat').then(resp => {
-					setState('idle');
-					if (resp && resp.data && resp.data.result) {
-						addMessage('assistant', resp.data.result);
-						if (setIsSpeaking) setIsSpeaking(true);
-						playTTS(resp.data.result);
+				if (e.detail && e.detail.message === 'hello') {
+					// Always activate voice mode (visuals) but only send the backend
+					// request if the activation was user-initiated. This prevents an
+					// automatic backend call on page refresh/autoplay.
+					setAudio(true);
+					const userInitiated = !!e.detail.userInitiated;
+					if (!userInitiated) {
+						// If not user-initiated, do not add a user message or call backend.
+						// We optionally could show a local hint or simply activate voice UI.
+						return;
 					}
-				});
-			}
-		};
+					// User initiated: send the greeting prompt to backend as before
+					addMessage('user', 'hello');
+					setState('waiting');
+					getResponse({ prompt: 'hello' }, '/llama-chat').then(resp => {
+						setState('idle');
+						if (resp && resp.data && resp.data.result) {
+							addMessage('assistant', resp.data.result);
+							if (setIsSpeaking) setIsSpeaking(true);
+							playTTS(resp.data.result);
+						}
+					});
+				}
+			};
 		window.addEventListener('activate-chatbot-voice', handler);
 		return () => window.removeEventListener('activate-chatbot-voice', handler);
 	// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
+
+	// Canvas-based particle system (faster than DOM nodes). Respects settings.animationQuality
+	useEffect(() => {
+		const canvas = particleCanvasRef.current;
+		if (!canvas) return;
+		const ctx = canvas.getContext('2d');
+		let width = 0;
+		let height = 0;
+		let dpr = Math.max(1, window.devicePixelRatio || 1);
+		let animationId = null;
+		let particles = [];
+		let mouse = { x: -9999, y: -9999, lastMove: 0 };
+
+		const quality = (settings && settings.animationQuality) ? settings.animationQuality : 'high';
+	// Reduce default particle count to make the scene lighter by default.
+	// 'low' remains low, 'off' keeps 0, and default/high uses a smaller count.
+	const baseCount = quality === 'low' ? 20 : (quality === 'off' ? 0 : 60);
+
+		function resize() {
+			width = canvas.clientWidth || canvas.offsetWidth || window.innerWidth;
+			height = canvas.clientHeight || canvas.offsetHeight || window.innerHeight;
+			dpr = Math.max(1, window.devicePixelRatio || 1);
+			canvas.width = Math.floor(width * dpr);
+			canvas.height = Math.floor(height * dpr);
+			canvas.style.width = width + 'px';
+			canvas.style.height = height + 'px';
+			ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+		}
+
+		function randomParticle() {
+			return {
+				x: Math.random() * width,
+				y: height + (Math.random() * 40),
+				vx: (Math.random() - 0.5) * 0.4,
+				vy: - (0.2 + Math.random() * 0.8),
+				size: Math.random() * 2.4 + 0.6,
+				alpha: 0,
+				life: 0,
+				ttl: 4 + Math.random() * 8
+			};
+		}
+
+		function ensureParticles() {
+			const target = baseCount;
+			while (particles.length < target) particles.push(randomParticle());
+			if (particles.length > target) particles.length = target;
+		}
+
+		function draw() {
+			ctx.clearRect(0,0,width,height);
+			// subtle fade overlay to create trailing
+			ctx.fillStyle = 'rgba(0,0,0,0)';
+			ctx.fillRect(0,0,width,height);
+
+			for (let i = 0; i < particles.length; i++) {
+				const p = particles[i];
+				p.x += p.vx;
+				p.y += p.vy;
+				p.life += 0.016;
+				p.alpha = Math.min(1, p.life / 0.6) * (1 - (p.life / p.ttl));
+				if (p.y < -20 || p.life > p.ttl) {
+					particles[i] = randomParticle();
+					continue;
+				}
+				ctx.beginPath();
+				ctx.globalAlpha = Math.max(0, p.alpha * 0.9);
+				const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size * 6);
+				g.addColorStop(0, 'rgba(255,255,255,0.95)');
+				g.addColorStop(0.2, 'rgba(255,255,255,0.5)');
+				g.addColorStop(1, 'rgba(255,255,255,0)');
+				ctx.fillStyle = g;
+				ctx.arc(p.x, p.y, p.size * 2, 0, Math.PI * 2);
+				ctx.fill();
+				ctx.globalAlpha = 1;
+			}
+
+			// subtle parallax on spheres - handled via CSS transforms in mousemove
+			animationId = requestAnimationFrame(draw);
+		}
+
+		function onMove(e) {
+			// convert to canvas coords
+			const rect = canvas.getBoundingClientRect();
+			mouse.x = (e.clientX - rect.left) * (canvas.width / rect.width) / dpr;
+			mouse.y = (e.clientY - rect.top) * (canvas.height / rect.height) / dpr;
+			mouse.lastMove = Date.now();
+			// burst small number of particles at mouse for interactivity
+			const burst = (quality === 'low') ? 1 : 2;
+			for (let i=0;i<burst;i++) {
+				const p = randomParticle();
+				p.x = (e.clientX - rect.left);
+				p.y = (e.clientY - rect.top);
+				p.vx = (Math.random()-0.5)*1.4;
+				p.vy = - (0.6 + Math.random()*1.6);
+				p.life = 0;
+				particles.push(p);
+			}
+			// minor sphere parallax (kept as CSS transforms)
+			const spheres = document.querySelectorAll('.chat-gradient-background .gradient-sphere');
+			const moveX = (e.clientX / window.innerWidth - 0.5) * 8; // px
+			const moveY = (e.clientY / window.innerHeight - 0.5) * 8;
+			spheres.forEach(s => { try { s.style.transform = `translate(${moveX}px, ${moveY}px)`; } catch {} });
+		}
+
+		function start() {
+			resize();
+			ensureParticles();
+			window.addEventListener('resize', resize);
+			window.addEventListener('mousemove', onMove);
+			draw();
+		}
+
+		function stop() {
+			window.removeEventListener('resize', resize);
+			window.removeEventListener('mousemove', onMove);
+			if (animationId) cancelAnimationFrame(animationId);
+			animationId = null;
+			try { ctx.clearRect(0,0,canvas.width,canvas.height); } catch {}
+		}
+
+		start();
+
+		return () => {
+			stop();
+			particles = [];
+		};
+	// Recreate when the animationQuality setting changes
+	}, [settings?.animationQuality]);
 	// Mic loudness state
 	const [micLevel, setMicLevel] = useState(0);
 	const audioContextRef = useRef(null);
@@ -89,6 +230,17 @@ const ChatBot = ({ setIsSpeaking }) => {
 	const containerRef = useRef(null);
 
 	const { transcript, listening, resetTranscript, browserSupportsSpeechRecognition } = useSpeechRecognition();
+	const [voiceError, setVoiceError] = useState(null);
+	const [speechApiSupported, setSpeechApiSupported] = useState(false);
+	const [mediaDevicesSupported, setMediaDevicesSupported] = useState(false);
+	const [secureContextFlag, setSecureContextFlag] = useState(false);
+	const [micPermission, setMicPermission] = useState('unknown');
+	// Recording fallback state
+	const [recState, setRecState] = useState('idle'); // idle|recording|ready
+	const [recBlob, setRecBlob] = useState(null);
+	const recChunksRef = useRef([]);
+	const mediaRecorderRef = useRef(null);
+	const [isOverlayVisible, setIsOverlayVisible] = useState(false);
 
 	// Track voice talk time when listening is true
 	useEffect(() => {
@@ -109,6 +261,21 @@ const ChatBot = ({ setIsSpeaking }) => {
 	useEffect(() => {
 		// On mount, make sure chat container is scrolled to bottom without smooth
 		scrollToBottom({ smooth: false });
+		// Diagnostics for voice features
+		try {
+			setSpeechApiSupported(!!(window.SpeechRecognition || window.webkitSpeechRecognition));
+		} catch { setSpeechApiSupported(false); }
+		setMediaDevicesSupported(!!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia));
+		setSecureContextFlag(!!(window.isSecureContext || window.location.protocol === 'https:' || /localhost|127\./.test(window.location.hostname)));
+		// Query permissions if available
+		try {
+			if (navigator.permissions && navigator.permissions.query) {
+				navigator.permissions.query({ name: 'microphone' }).then(res => {
+					setMicPermission(res.state || 'unknown');
+					res.onchange = () => setMicPermission(res.state || 'unknown');
+				}).catch(() => setMicPermission('unknown'));
+			}
+		} catch { setMicPermission('unknown'); }
 	}, []);
 
 	useEffect(() => {
@@ -220,11 +387,44 @@ const ChatBot = ({ setIsSpeaking }) => {
 		}
 	};
 
-	const handleListen = async () => {
-		if (browserSupportsSpeechRecognition) {
-			resetTranscript();
-			SpeechRecognition.startListening({ continuous: true, language: lang });
-			// Start mic loudness monitoring
+	// Start recording/recognition and show overlay UI
+	const startRecording = async () => {
+		setVoiceError(null);
+		setIsOverlayVisible(true);
+		// Try to start Web Speech API if available
+		if (speechApiSupported && browserSupportsSpeechRecognition) {
+			try {
+				resetTranscript();
+				// request mic first so permissions prompt appears
+				const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+				audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+				micStreamRef.current = stream;
+				const source = audioContextRef.current.createMediaStreamSource(stream);
+				analyserRef.current = audioContextRef.current.createAnalyser();
+				analyserRef.current.fftSize = 256;
+				source.connect(analyserRef.current);
+				// start recognition
+				SpeechRecognition.startListening({ continuous: true, language: lang });
+				// start level monitor loop
+				const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
+				const raf = () => {
+					if (!analyserRef.current) return;
+					analyserRef.current.getByteFrequencyData(dataArray);
+					const values = dataArray.reduce((a, b) => a + b, 0);
+					const average = values / dataArray.length;
+					setMicLevel(average);
+					requestAnimationFrame(raf);
+				};
+				requestAnimationFrame(raf);
+			} catch (err) {
+				console.error('startRecording (Speech API) error', err);
+				setVoiceError('Could not start microphone: ' + (err?.message || err));
+				setIsOverlayVisible(false);
+			}
+			return;
+		}
+		// Fallback: use MediaRecorder to capture audio and then send to server for STT
+		if (mediaDevicesSupported) {
 			try {
 				const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 				audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
@@ -234,36 +434,106 @@ const ChatBot = ({ setIsSpeaking }) => {
 				analyserRef.current.fftSize = 256;
 				source.connect(analyserRef.current);
 				const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
-				const updateMicLevel = () => {
+				const raf = () => {
+					if (!analyserRef.current) return;
 					analyserRef.current.getByteFrequencyData(dataArray);
-					// Get average volume
 					const values = dataArray.reduce((a, b) => a + b, 0);
 					const average = values / dataArray.length;
 					setMicLevel(average);
-					if (listening) {
-						requestAnimationFrame(updateMicLevel);
-					}
+					requestAnimationFrame(raf);
 				};
-				updateMicLevel();
-			} catch (err) {
-				console.error('Mic access error:', err);
+				requestAnimationFrame(raf);
+				recChunksRef.current = [];
+				const mr = new MediaRecorder(stream);
+				mediaRecorderRef.current = mr;
+				mr.ondataavailable = (e) => { if (e.data && e.data.size) recChunksRef.current.push(e.data); };
+				mr.onstop = () => {
+					const b = new Blob(recChunksRef.current, { type: 'audio/webm' });
+					setRecBlob(b);
+					setRecState('ready');
+					try { stream.getTracks().forEach(t => t.stop()); } catch { }
+				};
+				mr.start();
+				setRecState('recording');
+			} catch (e) {
+				console.error('Recorder start failed', e);
+				setVoiceError('Recorder failed to start. Check mic permissions.');
+				setIsOverlayVisible(false);
 			}
+			return;
 		}
+		setVoiceError('No available method to capture audio in this environment.');
+		setIsOverlayVisible(false);
 	};
-	const handleStop = () => {
-		SpeechRecognition.stopListening();
-		resetTranscript();
-		// Stop mic loudness monitoring
-		if (micStreamRef.current) {
-			micStreamRef.current.getTracks().forEach(track => track.stop());
-			micStreamRef.current = null;
+	// Stop recording/recognition and process transcript
+	const stopRecording = async () => {
+		setIsOverlayVisible(false);
+		// Stop SpeechRecognition if active
+		try {
+			if (speechApiSupported && browserSupportsSpeechRecognition && listening) {
+				SpeechRecognition.stopListening();
+				// wait a tick for final transcript to flush
+				await new Promise(r => setTimeout(r, 250));
+				const t = transcript?.trim();
+				if (t && t.length) {
+					setMessage(t);
+				}
+				resetTranscript();
+			} else if (mediaRecorderRef.current && recState === 'recording') {
+				try {
+					mediaRecorderRef.current.stop();
+				} catch { }
+				// wait for onstop to set recBlob
+				let attempts = 0;
+				while (recState !== 'ready' && attempts < 40) {
+					// wait for blob
+					// eslint-disable-next-line no-await-in-loop
+					await new Promise(r => setTimeout(r, 100));
+					attempts++;
+				}
+				if (recBlob) {
+					// Try to send to backend STT endpoint
+					try {
+						const apiBase = import.meta?.env?.DEV ? '/api' : 'http://localhost:5000';
+						const fd = new FormData();
+						fd.append('file', recBlob, 'recording.webm');
+						const res = await fetch(`${apiBase}/stt`, { method: 'POST', body: fd });
+						if (res.ok) {
+							const j = await res.json();
+							if (j?.text) {
+								setMessage(String(j.text));
+							} else {
+								setVoiceError('STT returned no text.');
+							}
+						} else {
+							setVoiceError('Server STT failed or not available. Download the recording from the UI.');
+						}
+					} catch (e) {
+						console.error('STT upload error', e);
+						setVoiceError('Failed to send recording for STT.');
+					}
+				} else {
+					setVoiceError('Recording failed; no audio captured.');
+				}
+			}
+		} catch (e) {
+			console.error('stopRecording error', e);
+			setVoiceError('Failed to process recording.');
+		} finally {
+			// cleanup audio graph
+			if (micStreamRef.current) {
+				try { micStreamRef.current.getTracks().forEach(t => t.stop()); } catch { }
+				micStreamRef.current = null;
+			}
+			if (audioContextRef.current) {
+				try { audioContextRef.current.close(); } catch { }
+				audioContextRef.current = null;
+			}
+			analyserRef.current = null;
+			mediaRecorderRef.current = null;
+			setRecState('idle');
+			setMicLevel(0);
 		}
-		if (audioContextRef.current) {
-			audioContextRef.current.close();
-			audioContextRef.current = null;
-		}
-		analyserRef.current = null;
-		setMicLevel(0);
 	};
 
 	useEffect(() => {
@@ -314,121 +584,132 @@ const ChatBot = ({ setIsSpeaking }) => {
 	};
 
 	return (
-	<main className='bg-gray-900 bg-opacity-95 md:rounded-lg md:shadow-md p-4 pt-2 pb-3 w-full h-full flex flex-col'>
-		<h1 className='text-base text-gray-100 font-semibold mb-1'>Welcome to NMCG - <span className='underline underline-offset-2 text-blue-300'> Chacha Chaudhary</span></h1>
-			<div className='relative w-full px-6 md:px-8 h-[56vh] md:h-[60vh]'>
-				<section ref={containerRef} className='chat-box border-t-2 border-gray-700 pt-4 overflow-y-auto h-full pb-28 hide-scrollbar px-4 md:px-6'>
-				<div className='flex flex-col space-y-4'>
-					{chatHistory.length === 0 ? (
-						<Fragment>
-							<Welcome />
-							<div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3'>
-								{samplePhrases.map(phrase => (
-									<button
-										key={phrase}
-										onClick={() => {
-											addMessage('user', phrase);
-											setTimeout(() => {
-												setState('idle');
-												addMessage('assistant', 'Wait, I am looking for your query!');
-											}, 1100);
-										}}
-										className='bg-gray-100 border-gray-300 border-2 rounded-md p-2 text-sm'>
-										{phrase}
-									</button>
-								))}
+	<main className='relative overflow-hidden bg-gray-900 bg-opacity-95 md:rounded-lg md:shadow-md p-4 pt-2 pb-3 w-full flex flex-col'>
+		{/* Gradient animated background */}
+		<div className='chat-gradient-background' aria-hidden>
+			<div className='gradient-sphere sphere-1' />
+			<div className='gradient-sphere sphere-2' />
+			<div className='gradient-sphere sphere-3' />
+			<div className='glow' />
+			<div className='grid-overlay' />
+			<div className='noise-overlay' />
+			<canvas ref={particleCanvasRef} id='chat-particles-canvas' className='particles-canvas' aria-hidden />
+		</div>
+		<div className='main-chat-wrapper'>
+			<div className='chat-shell'>
+				<div className='chat-grid'>
+					<aside className='left-rail'>
+						<div id='chacha-3d-mount' className='model-holder chacha-3d-pill relative flex items-center justify-center'>
+							<ChachaCanvas />
+						</div>
+					</aside>
+
+					<section className='right-panel'>
+						<h1 className='text-2xl md:text-3xl font-extrabold text-white text-center mb-4'>
+							Welcome to the Namami Gange Interactive Portal
+							<span className='block text-blue-300 mt-2 text-lg md:text-xl font-semibold'>Chacha Chaudhary</span>
+						</h1>
+						{/* Messages card */}
+						<div ref={containerRef} className='messages-card hide-scrollbar flex-1 overflow-y-auto p-4 md:p-6'>
+							<div className='flex flex-col space-y-4'>
+								{chatHistory.length === 0 ? (
+									<Fragment>
+										<Welcome />
+										<div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3'>
+											{samplePhrases.map(phrase => (
+												<button
+													key={phrase}
+													onClick={() => {
+														addMessage('user', phrase);
+														setTimeout(() => {
+															setState('idle');
+															addMessage('assistant', 'Wait, I am looking for your query!');
+														}, 1100);
+													}}
+													className='bg-gray-100 border-gray-300 border-2 rounded-md p-2 text-sm'>
+													{phrase}
+												</button>
+											))}
+										</div>
+									</Fragment>
+								) : (
+									chatHistory.map((chat, i) => (
+										<div key={i} className={`flex ${chat.role === 'user' ? 'justify-end' : 'justify-start'} w-full`}>
+											<div className={`rounded-2xl px-4 py-3 shadow-sm max-w-[70%] text-sm font-medium ${chat.role === 'user' ? 'bg-blue-700 text-white' : 'bg-gray-800 text-gray-100'} mb-3`}>
+												{chat.content}
+											</div>
+										</div>
+									))
+								)}
 							</div>
-						</Fragment>
-					) : (
-						chatHistory.map((chat, i) => (
-							<div key={i} className={`flex ${chat.role === 'user' ? 'justify-end' : 'justify-start'} w-full`}>
-													<div className={`rounded-2xl px-4 py-3 shadow-sm max-w-[70%] text-sm font-medium ${chat.role === 'user' ? 'bg-blue-700 text-white' : 'bg-gray-800 text-gray-100'} mb-3`}>
-									{chat.content}
+							<div ref={bottomRef} />
+						</div>
+
+						{/* Input row inside the right panel */}
+						<div className='chat-box-input-field mt-3'>
+						  <div className='chat-pill-container'>
+							<div className='chat-pill' role='search'>
+								<div className='chat-pill__left'>
+									<div style={{ width: '120px' }}>
+										<SelectLang setLang={setLang} />
+									</div>
+								</div>
+
+								<div className='chat-pill__input-wrap'>
+									{ (isOverlayVisible || listening || recState === 'recording') ? (
+									  <div className='chat-pill__waveform' onClick={() => { /* focus or toggle */ }}>
+										{Array.from({ length: 26 }).map((_, idx) => (
+										  <VisualizerBar key={idx} idx={idx} analyserRef={analyserRef} listening={listening || recState === 'recording'} />
+										))}
+									  </div>
+									) : (
+									  <input
+										type='text'
+										ref={inputRef}
+										className='chat-pill__input chat-input'
+										placeholder={state === 'idle' ? 'Ask anything' : '...'}
+										value={message}
+										onChange={handleInputChange}
+										onKeyDown={(e) => {
+										  if (e.key === 'Enter' && !e.shiftKey) {
+											e.preventDefault();
+											void sendMessage();
+										  }
+										}}
+										onBlur={handleInputBlur}
+										disabled={state !== 'idle'}
+									  />
+									)}
+								</div>
+
+								<div className='chat-pill__actions'>
+									<button
+									  title={(isOverlayVisible || listening) ? 'Stop' : 'Start voice input'}
+									  onClick={async () => {
+										if (isOverlayVisible) await stopRecording(); else await startRecording();
+									  }}
+									  className={'chat-pill__mic ' + (isOverlayVisible || listening ? 'active' : '')}
+									>
+									  <BsMic />
+									</button>
+
+									<button
+									  className='chat-pill__send'
+									  onClick={() => { void sendMessage(); }}
+									  disabled={!message || state !== 'idle'}
+									  aria-label='Send'
+									>
+									  <span className='chat-pill__send-text'>Send</span>
+									</button>
 								</div>
 							</div>
-						))
-					)}
-
-					{/* Remove currentChat and currentMessage usage, or define them safely */}
-				</div>
-
-					<div ref={bottomRef} />
-				</section>
-
-				{/* input bar fixed to bottom of the chat card */}
-				<div className='chat-box-input-field absolute left-6 right-6 bottom-6 z-20 mx-auto max-w-[920px] flex flex-row items-center justify-between gap-4 rounded-2xl p-4 bg-gray-800/90 backdrop-blur-sm shadow-md border border-gray-700'>
-				<div className='flex flex-row items-center gap-3'>
-					<button onClick={handleaudio} className='text-3xl text-gray-300 hover:text-blue-400'>
-						{audio ? <HiOutlineSpeakerWave /> : <HiOutlineSpeakerXMark />}
-					</button>
-					<div className='w-32 text-sm'><SelectLang setLang={setLang} /></div>
-					<button
-						onClick={handleListen}
-						className={listening ? `bg-blue-600 text-white py-2 px-3 rounded-full animate-pulse border-2 border-blue-700 text-sm` : `bg-gray-700 text-gray-200 py-2 px-3 rounded-full border border-gray-600 text-sm`}
-						disabled={listening}
-						title={listening ? 'Listening...' : 'Start voice input'}
-					>
-						<BsMic className='text-2xl' />
-					</button>
-					{listening && (
-						<span className='ml-1 text-blue-400 font-semibold text-sm animate-pulse'>Listening...</span>
-					)}
-					{listening && (
-						<button
-							onClick={handleStop}
-							className='bg-red-600 text-white py-1 px-2 rounded-full font-semibold border border-red-700 ml-1 text-sm'
-						>
-							Stop
-						</button>
-					)}
-					{!listening && transcript && (
-						<button
-							onClick={handleListen}
-							className='bg-yellow-400 text-black py-1 px-2 rounded-full font-semibold border border-yellow-600 ml-1 text-sm'
-							title='Retry voice input'
-						>
-							Retry
-						</button>
-					)}
-					{listening && (
-						<div className='w-28 h-2 bg-gray-200 rounded mt-2 relative'>
-							<div
-								className='h-2 rounded bg-green-500 transition-all duration-100'
-								style={{ width: `${Math.min(100, micLevel)}%` }}
-							/>
-						</div>
-					)}
-				</div>
-				<div className='flex flex-row flex-wrap items-center gap-3 flex-grow' style={{ maxWidth: '720px' }}>
-					<input
-						type='text'
-						ref={inputRef}
-				className='flex-grow chat-input rounded-md px-4 py-3 text-base min-h-[48px] border border-gray-700 focus:border-blue-400 focus:ring-1 focus:ring-blue-900 transition-all duration-150 shadow-sm bg-gray-900 text-gray-100 placeholder-gray-400'
-						style={{ minWidth: '0', maxWidth: '420px' }}
-						placeholder={state === 'idle' ? 'Type your message...' : '...'}
-						value={message}
-						onChange={handleInputChange}
-						onKeyDown={(e) => {
-							// Send on Enter, but allow Shift+Enter for new lines
-							if (e.key === 'Enter' && !e.shiftKey) {
-								e.preventDefault();
-								void sendMessage();
-							}
-						}}
-						onBlur={handleInputBlur}
-						disabled={state !== 'idle'}
-					/>
-					<button
-						className='bg-blue-700 hover:bg-blue-800 text-white text-base font-semibold py-3 px-6 rounded-md shadow-md transition-all duration-150 disabled:bg-gray-700 disabled:cursor-not-allowed'
-						disabled={message && state === 'idle' ? false : true}
-						onClick={() => { void sendMessage(); }}
-					>
-						Send
-					</button>
-				</div>
+						  </div>
+					</div>
+					</section>
 				</div>
 			</div>
-		</main>
+		</div>
+	</main>
 	);
 };
 
@@ -437,3 +718,37 @@ export default ChatBot;
 ChatBot.propTypes = {
 	setIsSpeaking: PropTypes.func,
 };
+
+// Small visualizer bar component that reads the analyser node and scales height
+function VisualizerBar({ idx, analyserRef, listening }) {
+	const ref = useRef(null);
+	useEffect(() => {
+		let rafId = null;
+		const el = ref.current;
+		const update = () => {
+			try {
+				const analyser = analyserRef.current;
+				if (!analyser || !el) {
+					el.style.height = '4px';
+					rafId = requestAnimationFrame(update);
+					return;
+				}
+				const bins = analyser.frequencyBinCount;
+				const arr = new Uint8Array(bins);
+				analyser.getByteFrequencyData(arr);
+				// pick a frequency band per bar, spread across the array
+				const band = Math.floor((idx / 18) * bins);
+				const v = arr[band] / 255; // 0..1
+				const min = 4;
+				const max = 48;
+				const h = Math.round(min + v * (max - min));
+				el.style.height = h + 'px';
+				el.style.opacity = String(0.35 + v * 0.65);
+			} catch (e) { /* ignore */ }
+			rafId = requestAnimationFrame(update);
+		};
+		if (listening) update();
+		return () => { if (rafId) cancelAnimationFrame(rafId); };
+	}, [analyserRef, idx, listening]);
+	return <div ref={ref} style={{ width: 6, height: 6, background: 'linear-gradient(180deg,#60a5fa,#0369a1)', borderRadius: 3 }} className='transform-gpu' />;
+}
