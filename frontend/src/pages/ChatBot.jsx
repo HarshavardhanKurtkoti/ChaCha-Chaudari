@@ -222,9 +222,10 @@ const ChatBot = ({ setIsSpeaking }) => {
 	const [isTyping, setIsTyping] = useState(false);
 	const [state, setState] = useState('idle');
 	const [lang, setLang] = useState('en-IN');
+	const [streamingEnabled, setStreamingEnabled] = useState(true);
 	const inputRef = useRef(null);
 
-	const { chatHistory, addMessage } = useMessageContext();
+	const { chatHistory, addMessage, resetHistory, updateLastAssistant } = useMessageContext();
 
 	const bottomRef = useRef(null);
 	const containerRef = useRef(null);
@@ -352,9 +353,14 @@ const ChatBot = ({ setIsSpeaking }) => {
 				} catch (e) { console.debug('userProfile parse error', e); }
 				const userToken = localStorage.getItem('userToken');
 				const payload = { ...userdata, ageGroup, name };
-				// Provide recent conversation history for context (last 8 messages)
+				// Provide recent conversation history for context (last 12 messages)
 				try {
-					payload.history = (chatHistory || []).slice(-8);
+					payload.history = (chatHistory || []).slice(-12);
+				} catch {}
+				// Per-request speed preset: use 'fast' in voice mode by default (except for kids)
+				try {
+					const isKidLocal = (typeof ageGroup === 'string' ? ageGroup : payload.ageGroup) === 'kid';
+					if (audio && !isKidLocal && !payload.speed) payload.speed = 'fast';
 				} catch {}
 				// In voice mode we prefer fast fallback, but let kids get full richer answers
 				const isKid = payload.ageGroup === 'kid';
@@ -384,6 +390,68 @@ const ChatBot = ({ setIsSpeaking }) => {
 			return response;
 		} catch (err) {
 			console.error(err);
+		}
+	};
+
+	// Streamed response reader (NDJSON with lines like {"delta":"..."} and final {"done":true})
+	const streamResponse = async (userdata) => {
+		try {
+			let ageGroup = null;
+			let name = undefined;
+			try {
+				const p = JSON.parse(localStorage.getItem('userProfile') || 'null');
+				const rawAge = p?.age; name = p?.name;
+				let age = null;
+				if (typeof rawAge === 'number') age = rawAge; else if (typeof rawAge === 'string' && /^\d+$/.test(rawAge.trim())) age = parseInt(rawAge.trim(), 10);
+				if (typeof age === 'number' && !Number.isNaN(age)) ageGroup = age <= 10 ? 'kid' : age < 16 ? 'teen' : 'adult';
+			} catch {}
+			const payload = { ...userdata, ageGroup, name };
+			try { payload.history = (chatHistory || []).slice(-12); } catch {}
+			try {
+				const isKidLocal = (typeof ageGroup === 'string' ? ageGroup : payload.ageGroup) === 'kid';
+				if (audio && !isKidLocal && !payload.speed) payload.speed = 'fast'; else if (!payload.speed) payload.speed = 'balanced';
+			} catch {}
+
+			const resp = await fetch(`${baseURL}/llama-chat-stream`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(payload)
+			});
+			if (!resp.ok || !resp.body) {
+				console.warn('Stream endpoint failed; falling back');
+				return await getResponse(userdata, '/llama-chat');
+			}
+			setState('thinking');
+			let created = false;
+			if (setIsSpeaking && audio) setIsSpeaking(true);
+			const reader = resp.body.getReader();
+			const decoder = new TextDecoder();
+			let buffer = '';
+			while (true) {
+				const { value, done } = await reader.read();
+				if (done) break;
+				buffer += decoder.decode(value, { stream: true });
+				let idx;
+				while ((idx = buffer.indexOf('\n')) !== -1) {
+					const line = buffer.slice(0, idx).trim();
+					buffer = buffer.slice(idx + 1);
+					if (!line) continue;
+					try {
+						const obj = JSON.parse(line);
+						if (obj.delta) {
+							if (!created) { addMessage('assistant', ''); created = true; }
+							updateLastAssistant(String(obj.delta));
+						} else if (obj.done) {
+							// meta end; could use for telemetry if needed
+						}
+					} catch {}
+				}
+			}
+			setState('idle');
+			if (setIsSpeaking) setIsSpeaking(false);
+		} catch (e) {
+			console.error('streamResponse error', e);
+			setState('idle');
 		}
 	};
 
@@ -492,25 +560,22 @@ const ChatBot = ({ setIsSpeaking }) => {
 					attempts++;
 				}
 				if (recBlob) {
-					// Try to send to backend STT endpoint
-					try {
-						const apiBase = import.meta?.env?.DEV ? '/api' : 'http://localhost:5000';
-						const fd = new FormData();
-						fd.append('file', recBlob, 'recording.webm');
-						const res = await fetch(`${apiBase}/stt`, { method: 'POST', body: fd });
-						if (res.ok) {
-							const j = await res.json();
-							if (j?.text) {
-								setMessage(String(j.text));
-							} else {
-								setVoiceError('STT returned no text.');
-							}
+					// We intentionally avoid using server-side STT here.
+					// Prefer the browser SpeechRecognition (Web Speech API) which
+					// populates `transcript`. If that's not available, inform the
+					// user that local STT isn't supported instead of uploading audio.
+					if (speechApiSupported && browserSupportsSpeechRecognition) {
+						// Wait a moment for final transcript to settle (if any)
+						await new Promise(r => setTimeout(r, 250));
+						const t = transcript?.trim();
+						if (t && t.length) {
+							setMessage(t);
 						} else {
-							setVoiceError('Server STT failed or not available. Download the recording from the UI.');
+							// No transcript even though API is present
+							setVoiceError('No speech detected. Please try again or type your question.');
 						}
-					} catch (e) {
-						console.error('STT upload error', e);
-						setVoiceError('Failed to send recording for STT.');
+					} else {
+						setVoiceError('Local speech recognition not available in this browser. Please type your question or enable a browser that supports Web Speech API.');
 					}
 				} else {
 					setVoiceError('Recording failed; no audio captured.');
@@ -561,17 +626,23 @@ const ChatBot = ({ setIsSpeaking }) => {
 				addMessage('user', message);
 				setState('waiting');
 				SpeechRecognition.abortListening();
-				let resp = await getResponse({ prompt: message }, '/llama-chat');
-				setMessage('');
-				resetTranscript();
-				setState('idle');
-				if (resp && resp.data && resp.data.result) {
-					addMessage('assistant', resp.data.result);
-					if (audio) {
-						playTTS(resp.data.result);
-						if (setIsSpeaking) setIsSpeaking(true);
-					} else {
-						if (setIsSpeaking) setIsSpeaking(false);
+				if (streamingEnabled) {
+					await streamResponse({ prompt: message });
+					setMessage('');
+					resetTranscript();
+				} else {
+					let resp = await getResponse({ prompt: message }, '/llama-chat');
+					setMessage('');
+					resetTranscript();
+					setState('idle');
+					if (resp && resp.data && resp.data.result) {
+						addMessage('assistant', resp.data.result);
+						if (audio) {
+							playTTS(resp.data.result);
+							if (setIsSpeaking) setIsSpeaking(true);
+						} else {
+							if (setIsSpeaking) setIsSpeaking(false);
+						}
 					}
 				}
 			}
@@ -605,15 +676,31 @@ const ChatBot = ({ setIsSpeaking }) => {
 					</aside>
 
 					<section className='right-panel'>
-						<h1 className='text-2xl md:text-3xl font-extrabold text-white text-center mb-4'>
-							Welcome to the Namami Gange Interactive Portal
-							<span className='block text-blue-300 mt-2 text-lg md:text-xl font-semibold'>Chacha Chaudhary</span>
-						</h1>
+						<div className='flex items-center justify-between mb-4'>
+							<h1 className='text-2xl md:text-3xl font-extrabold text-white text-center flex-1'>
+								Welcome to the Namami Gange Interactive Portal
+								<span className='block text-blue-300 mt-2 text-lg md:text-xl font-semibold'>Chacha Chaudhary</span>
+							</h1>
+							<div className='flex items-center gap-2'>
+								<button
+									className='text-xs md:text-sm px-3 py-2 rounded-md bg-gray-800 text-gray-100 border border-gray-600 hover:bg-gray-700'
+									onClick={() => { resetHistory(); setState('idle'); setMessage(''); }}
+								>
+									New chat
+								</button>
+								<label className='flex items-center gap-2 text-xs md:text-sm text-gray-300'>
+									<input type='checkbox' checked={streamingEnabled} onChange={(e)=>setStreamingEnabled(e.target.checked)} />
+									Stream replies
+								</label>
+							</div>
+						</div>
 						{/* Messages card */}
 						<div ref={containerRef} className='messages-card hide-scrollbar flex-1 overflow-y-auto p-4 md:p-6'>
 							<div className='flex flex-col space-y-4'>
 								{chatHistory.length === 0 ? (
 									<Fragment>
+										{/* Personalized wave if name known */}
+										{(() => { try { const p = JSON.parse(localStorage.getItem('userProfile')||'null'); if (p?.name) return (<p className='text-gray-300 text-sm mb-2'>Hi {p.name} 👋 — ask me anything about the Ganga, projects near you, or how to help.</p>); } catch {} return null; })()}
 										<Welcome />
 										<div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3'>
 											{samplePhrases.map(phrase => (
@@ -640,6 +727,19 @@ const ChatBot = ({ setIsSpeaking }) => {
 											</div>
 										</div>
 									))
+								)}
+								{/* Typing indicator bubble when assistant is thinking */}
+								{(state === 'waiting' || state === 'thinking') && (
+									<div className='flex justify-start w-full'>
+										<div className='rounded-2xl px-4 py-3 shadow-sm max-w-[60%] text-sm font-medium bg-gray-800 text-gray-300 mb-3'>
+											<span className='inline-flex items-center space-x-2'>
+												<span className='w-2 h-2 bg-gray-400 rounded-full animate-bounce' style={{ animationDelay: '0ms' }} />
+												<span className='w-2 h-2 bg-gray-400 rounded-full animate-bounce' style={{ animationDelay: '150ms' }} />
+												<span className='w-2 h-2 bg-gray-400 rounded-full animate-bounce' style={{ animationDelay: '300ms' }} />
+												<span className='ml-2'>Thinking…</span>
+											</span>
+										</div>
+									</div>
 								)}
 							</div>
 							<div ref={bottomRef} />

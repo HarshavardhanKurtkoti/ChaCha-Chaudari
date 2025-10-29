@@ -19,6 +19,7 @@ import logging
 import warnings
 import struct
 from dotenv import dotenv_values
+import json
 from flask import Flask, request, send_file, jsonify
 from flask_cors import CORS
 import numpy as np
@@ -165,6 +166,10 @@ except Exception:
 try:
     import torch  # noqa: F401
     from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig  # type: ignore
+    try:
+        from transformers import TextIteratorStreamer  # type: ignore
+    except Exception:
+        TextIteratorStreamer = None  # type: ignore
     _TRANSFORMERS_AVAILABLE = True
 except Exception as _tx_err:
     logger.warning(f"Transformers/torch not available, LLM disabled: {_tx_err}")
@@ -1235,8 +1240,8 @@ def create_app():
             history = data.get('history')
             if not isinstance(history, list):
                 history = []
-            # Trim to last few messages
-            history = history[-8:]
+            # Trim to last few messages (send more context for better conversational continuity)
+            history = history[-12:]
 
             # Lightweight intent: special-case simple greetings and welcome message
             kid_greeting_story = False
@@ -1336,7 +1341,7 @@ def create_app():
             if user_name:
                 persona_lines.append(f"The user's name is {user_name}.")
             # Natural, human-style guidance by age
-            persona_lines.append("Speak as ChaCha in first person (I/me), natural and warm, like a real human conversation.")
+            persona_lines.append("Speak as ChaCha in first person (I/me) with a warm, friendly tone—natural, concise, and human.")
             # Decide kid story mode only when appropriate, not always
             use_kid_story = False
             if (age_group == 'kid'):
@@ -1356,8 +1361,10 @@ def create_app():
             elif age_group == 'teen':
                 persona_lines.append("Keep it concise, friendly, and practical — one or two short paragraphs.")
             else:
-                persona_lines.append("Be concise and conversational; avoid lists unless explicitly asked.")
-            persona_lines.append("When appropriate, end with one short follow-up question to keep the chat flowing.")
+                persona_lines.append("Be concise and conversational; prefer short paragraphs (2–4). Avoid lists unless explicitly asked.")
+            persona_lines.append("Ask one brief, tailored follow‑up question to keep the chat flowing, unless the user asks for a one‑shot answer.")
+            persona_lines.append("Use light empathy and clarifying questions when the user’s goal is ambiguous.")
+            persona_lines.append("If the user says ‘continue’, ‘go on’, or answers yes/no, continue naturally from the last assistant reply without restarting or repeating.")
             persona_lines.append("Do not include role labels or markdown headings in the reply.")
             # Sourcing guidance (keep replies conversational; no disclaimers in text)
             if rag_reliable:
@@ -1442,8 +1449,15 @@ def create_app():
                 })
 
             # 3) Tune generation with latency-aware presets
-            # Speed preset: fast | balanced | quality
+            # Speed preset: fast | balanced | quality (request can override env)
             speed_preset = (os.environ.get('LLAMA_SPEED_PRESET') or env_vars.get('LLAMA_SPEED_PRESET') or 'balanced').strip().lower()
+            # request override
+            try:
+                req_speed = (data.get('speed') or data.get('speed_preset') or '').strip().lower()
+                if req_speed in ('fast', 'balanced', 'quality'):
+                    speed_preset = req_speed
+            except Exception:
+                pass
             if speed_preset not in ('fast', 'balanced', 'quality'):
                 speed_preset = 'balanced'
 
@@ -1658,6 +1672,211 @@ def create_app():
             return jsonify(resp)
         except Exception as e:
             logging.error(f"Error in /llama-chat: {e}")
+            return jsonify({"error": str(e)}), 500
+
+    @app.route('/llama-chat-stream', methods=['POST', 'OPTIONS'])
+    def llama_chat_stream():
+        """NDJSON streaming endpoint that streams partial text deltas.
+        Each chunk is a JSON line: {"delta": "..."}
+        Final line: {"done": true, ...meta}
+        """
+        if request.method == 'OPTIONS':
+            return ("", 200)
+        req_start = time.time()
+        try:
+            data = request.get_json() or {}
+            prompt = data.get('prompt')
+            if not prompt:
+                return jsonify({"error": "No prompt provided"}), 400
+            # history and personalization
+            history = data.get('history')
+            if not isinstance(history, list):
+                history = []
+            history = history[-12:]
+            age_group = (
+                data.get('ageGroup')
+                or data.get('agegroup')
+                or data.get('age_group')
+                or data.get('AgeGroup')
+            )
+            user_name = (
+                data.get('name') or data.get('Name') or data.get('username') or data.get('user_name')
+            )
+            if isinstance(age_group, str):
+                agl = age_group.strip().lower()
+                age_group = 'kid' if agl in ('child','children','kids','kiddo') else agl
+            if isinstance(user_name, str):
+                user_name = user_name.strip()
+
+            # Fallback if RAG unavailable but allowed
+            if embedder is None or index is None or chunks is None:
+                allow = os.environ.get('LLAMA_ALLOW_FALLBACK_WITHOUT_RAG','').strip().lower() in ('1','true','yes')
+                if not allow:
+                    return jsonify({"error": "RAG components not initialized"}), 503
+
+            # Retrieval
+            query_emb = embedder.encode([prompt])
+            query_arr = np.array(query_emb, dtype=np.float32)
+            if query_arr.ndim == 1:
+                query_arr = np.expand_dims(query_arr, 0)
+            D, I = index.search(query_arr, k=3)
+            retrieved_chunks = [chunks[i] for i in I[0] if 0 <= i < len(chunks)]
+            rag_score = None
+            try:
+                if D is not None and len(D) > 0 and len(D[0]) > 0:
+                    d0 = float(D[0][0])
+                    if 0.0 <= d0 <= 1.0:
+                        rag_score = max(0.0, min(1.0, 1.0 - d0))
+                    elif 0.0 <= d0 <= 2.0:
+                        rag_score = max(0.0, min(1.0, 1.0 - (d0 / 2.0)))
+            except Exception:
+                rag_score = None
+            rag_reliable = bool(retrieved_chunks) and (rag_score is not None and rag_score >= 0.70)
+            context = "\n\n---\n\n".join(retrieved_chunks) if retrieved_chunks else ""
+            max_context_chars = int(os.environ.get('RAG_CONTEXT_CHARS', '1200'))
+            if len(context) > max_context_chars:
+                context = context[:max_context_chars] + "\n[context truncated]"
+
+            # Persona (match non-streaming route semantics)
+            persona_lines = []
+            if user_name:
+                persona_lines.append(f"The user's name is {user_name}.")
+            persona_lines.append("Speak as ChaCha in first person (I/me) with a warm, friendly tone—natural, concise, and human.")
+            if age_group == 'kid':
+                persona_lines.append("Use simple, positive language; short example or story; end with one friendly question.")
+            elif age_group == 'teen':
+                persona_lines.append("Keep it concise, friendly, and practical — one or two short paragraphs.")
+            else:
+                persona_lines.append("Be concise and conversational; prefer short paragraphs (2–4). Avoid lists unless asked.")
+            persona_lines.append("Ask one brief, tailored follow‑up question to keep the chat flowing, unless the user asks for a one‑shot answer.")
+            persona_lines.append("Use light empathy and clarifying questions when the user’s goal is ambiguous.")
+            persona_lines.append("Do not include role labels or markdown headings in the reply.")
+            if rag_reliable:
+                persona_lines.append("Use the context below as your primary source. If you add general knowledge, keep it minimal and integrated naturally.")
+            else:
+                persona_lines.append("Context appears weak or missing. Answer from general knowledge clearly and helpfully without apologies or disclaimers.")
+            system_preface = "\n".join(persona_lines)
+
+            convo_lines = []
+            for m in history:
+                role = str(m.get('role','')).strip().lower()
+                content = str(m.get('content','')).strip()
+                if not content:
+                    continue
+                if role == 'user':
+                    convo_lines.append(f"User: {content}")
+                elif role == 'assistant':
+                    convo_lines.append(f"Assistant: {content}")
+            conversation_block = "\n".join(convo_lines)
+            full_prompt = (
+                f"System instructions:\n{system_preface}\n\n"
+                f"Conversation so far:\n{conversation_block}\n\n"
+                f"Context:\n{context}\n\n"
+                f"User message:\n{prompt}\n\n"
+                f"Assistant reply:"
+            )
+
+            # Speed preset handling
+            speed_preset = (os.environ.get('LLAMA_SPEED_PRESET') or env_vars.get('LLAMA_SPEED_PRESET') or 'balanced').strip().lower()
+            try:
+                req_speed = (data.get('speed') or data.get('speed_preset') or '').strip().lower()
+                if req_speed in ('fast','balanced','quality'):
+                    speed_preset = req_speed
+            except Exception:
+                pass
+            if speed_preset not in ('fast','balanced','quality'):
+                speed_preset = 'balanced'
+
+            temperature = 0.2
+            top_p = 0.9
+            if _LLM_DEVICE == 'cpu':
+                preset_tokens = {'fast': 48, 'balanced': 72, 'quality': 104}
+                default_max_time = {'fast': 4.0, 'balanced': 6.0, 'quality': 8.0}[speed_preset]
+            else:
+                preset_tokens = {'fast': 128, 'balanced': 196, 'quality': 320}
+                default_max_time = {'fast': 8.0, 'balanced': 14.0, 'quality': 22.0}[speed_preset]
+            max_new_tokens = int(os.environ.get('LLAMA_MAX_NEW_TOKENS', str(preset_tokens[speed_preset])))
+            if age_group == 'kid':
+                temperature = 0.7
+            elif age_group == 'teen':
+                temperature = 0.4
+            max_input_tokens = int(os.environ.get('LLAMA_MAX_INPUT_TOKENS', '1024'))
+            max_time = float(os.environ.get('LLAMA_MAX_TIME', str(default_max_time)))
+
+            # If no LLM or transformers streamer unavailable, stream fallback as one chunk
+            if tokenizer is None or llm is None or TextIteratorStreamer is None:
+                def gen_fallback():
+                    text = _conversational_fallback(prompt, user_name, age_group, history)
+                    yield json.dumps({"delta": text}) + "\n"
+                    meta = {
+                        "done": True,
+                        "retrieved_count": len(retrieved_chunks),
+                        "rag_score": float(rag_score) if rag_score is not None else None,
+                        "source": "rag" if rag_reliable else "general",
+                        "temperature": round(float(temperature),2),
+                        "top_p": round(float(top_p),2),
+                        "used_max_new_tokens": int(max_new_tokens),
+                        "latency_ms": int((time.time() - req_start) * 1000),
+                        "llm_used": False,
+                    }
+                    yield json.dumps(meta) + "\n"
+                from flask import Response
+                return Response(gen_fallback(), mimetype='application/x-ndjson')
+
+            # Build inputs and streamer
+            try:
+                import torch
+                no_grad_ctx = torch.inference_mode
+            except Exception:
+                class _NoopCtx:
+                    def __enter__(self):
+                        return None
+                    def __exit__(self, exc_type, exc, tb):
+                        return False
+                def no_grad_ctx():
+                    return _NoopCtx()
+
+            inputs = tokenizer(full_prompt, return_tensors='pt', truncation=True, max_length=max_input_tokens).to(llm.device)
+            do_sample = False if _LLM_DEVICE == 'cpu' else True
+            if (temperature and float(temperature) > 0.0) or (top_p and float(top_p) < 1.0):
+                do_sample = True
+            generate_kwargs = dict(max_new_tokens=max_new_tokens, do_sample=do_sample, use_cache=False if _LLM_DEVICE=='cpu' else True)
+            if do_sample:
+                generate_kwargs.update(temperature=temperature, top_p=top_p)
+            if max_time > 0:
+                generate_kwargs['max_time'] = max_time
+
+            streamer = TextIteratorStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True)
+
+            def run_generate():
+                with no_grad_ctx():
+                    llm.generate(**inputs, streamer=streamer, **generate_kwargs)
+
+            def gen_stream():
+                import threading as _th
+                th = _th.Thread(target=run_generate, daemon=True)
+                th.start()
+                for piece in streamer:
+                    if not piece:
+                        continue
+                    yield json.dumps({"delta": piece}) + "\n"
+                th.join(timeout=0.1)
+                meta = {
+                    "done": True,
+                    "retrieved_count": len(retrieved_chunks),
+                    "rag_score": float(rag_score) if rag_score is not None else None,
+                    "source": "rag" if rag_reliable else "general",
+                    "temperature": round(float(temperature),2),
+                    "top_p": round(float(top_p),2),
+                    "used_max_new_tokens": int(max_new_tokens),
+                    "latency_ms": int((time.time() - req_start) * 1000),
+                    "llm_used": True,
+                }
+                yield json.dumps(meta) + "\n"
+
+            from flask import Response
+            return Response(gen_stream(), mimetype='application/x-ndjson')
+        except Exception as e:
             return jsonify({"error": str(e)}), 500
 
     return app
