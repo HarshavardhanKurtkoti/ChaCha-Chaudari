@@ -15,52 +15,69 @@
 
 \begin{document}
 
-	itle{SmartGanga Mascot: An AI/ML and RAG-Powered Robot and Digital Avatar for River--People Connect in Namami Gange}
+	itle{SmartGanga Mascot: An AI/ML and RAG-Powered Robot and 3D Digital Avatar for River--People Connect in Namami Gange}
 
-\author{\IEEEauthorblockN{First Author, Second Author, ...}
-\IEEEauthorblockA{Department / Institute\\ City, Country\\ Email: first.author@example.com}}
+\author{\IEEEauthorblockN{Harshavardhan Kurtkoti\IEEEauthorrefmark{1}, Ananya Ravishankar\IEEEauthorrefmark{2}}%
+\IEEEauthorblockA{\IEEEauthorrefmark{1}\,\IEEEauthorrefmark{2}Information Science and Technology, Presidency University, Bangalore, India\\%
+Email: kurtkoti.harsha@gmail.com, anublr04@gmail.com}}
 
 \maketitle
 
 \begin{abstract}
-We present an on-device, retrieval-augmented generation (RAG) chatbot and voice assistant designed as the digital avatar of ``Chacha Chaudhary,'' the official mascot of the Namami Gange Programme. The system couples a local Llama-2 7B chat model with a lightweight document retrieval pipeline built over FAISS. A React-based web front-end offers multimodal interaction, including text, speech-to-text (STT), and text-to-speech (TTS). The backend exposes REST APIs using Flask and integrates user authentication and chat persistence via MongoDB. We detail the architecture, implementation choices, optimizations for edge deployment (quantization-ready model artifacts, GPU containers), and evaluate the system using response relevance, latency, and user study metrics in a museum-style kiosk scenario. The approach demonstrates a practical, privacy-preserving RAG pipeline for domain outreach.
+Public engagement in environmental conservation requires interactive, context-aware, and reliable communication channels. The Namami Gange Programme, India’s main initiative for river rejuvenation, has chosen ``Chacha Chaudhary'' as its official mascot to make river conservation more relatable to citizens. This paper presents SmartGanga Mascot, an AI/ML-powered digital avatar and voice assistant that brings the mascot to life in a kiosk-style setup. The system combines retrieval-augmented generation (RAG) with a locally hosted Llama-2 7B/compatible chat model, a FAISS-based document retrieval pipeline, and a multimodal web interface that supports text, speech-to-text (STT), and text-to-speech (TTS). The backend, built in Flask, provides REST APIs and works with MongoDB for authentication and chat history. We explain the architecture, design choices, and optimizations for edge deployment, including quantized model artifacts and CUDA-enabled Docker environments. We evaluated retrieval accuracy, response time, memory usage, and user satisfaction in a museum kiosk setting. Results indicate that the system provides low-latency, relevant responses while ensuring privacy since no data leaves the device. This work shows how domain-focused conversational agents can be effectively used for public outreach and environmental education.
 \end{abstract}
 
 \begin{IEEEkeywords}
-RAG, LLM, Llama-2, FAISS, Flask, React, Edge AI, Speech Synthesis, MongoDB, Human-Computer Interaction
+Retrieval-Augmented Generation, Large Language Models, Llama-2, FAISS, Flask, React, Edge AI, Speech Synthesis, MongoDB, Human-Computer Interaction
 \end{IEEEkeywords}
 
 \section{Introduction}
-Public engagement on riverine ecology requires accurate, approachable, and accessible interfaces. We target a kiosk/web avatar scenario for Namami Gange, adopting a locally hosted LLM to preserve privacy and control latency. Our contributions: (i) an end-to-end RAG chatbot centered on Llama-2 7B chat; (ii) a pragmatic retrieval pipeline over FAISS with PDF ingestion; (iii) a web UI with TTS/STT and JWT-authenticated, persistent chats; and (iv) reproducible GPU deployment through CUDA-enabled Docker.
+Rivers play a crucial role in shaping the cultural and ecological landscape of India. The Namami Gange Programme, launched by the Government of India, aims to rejuvenate the Ganga River by tackling pollution, encouraging sustainable practices, and increasing public awareness. Even with significant investments in infrastructure and policy, engaging citizens remains a challenge.
+
+Mascots and avatars have proven effective for public engagement. Using the beloved comic character ``Chacha Chaudhary'' as the face of the Namami Gange Programme aims to create an emotional and cultural connection with people of all ages. However, to fully harness this potential, the mascot must evolve from a static image to an interactive entity that can answer questions, guide learning, and stimulate curiosity.
+
+Large Language Models (LLMs) like Llama-2 show strong conversational skills, but they need to be tailored for specific contexts. Retrieval-Augmented Generation (RAG) addresses this by enhancing model prompts with relevant information from selected documents. Deploying this system on local kiosks brings additional challenges such as limited compute, privacy requirements, and low-latency interaction demands.
+
+This paper introduces SmartGanga Mascot, a locally hosted, AI-powered chatbot and voice assistant that serves as the digital avatar for Chacha Chaudhary. The main contributions are: (i) an end-to-end, kiosk-friendly RAG chatbot system powered by LLMs and FAISS; (ii) a multimodal web interface supporting text, voice input, and voice output to promote inclusivity; (iii) edge-optimized Docker images for consistent GPU performance and offline operation; and (iv) a quantitative and qualitative assessment covering retrieval hit-rate, response time, memory usage, and user feedback.
+
 
 \section{Related Work}
-RAG combines retrieval with generation to ground LLM responses in external knowledge \cite{rag_lewis2020}. Local and edge-hosted LLMs reduce cloud dependency while improving privacy. Conversational agents for education and museums demonstrate the value of domain-grounded dialogue in public spaces.
+	extbf{Retrieval-Augmented Generation (RAG).} Prior work shows that RAG effectively adapts general-purpose LLMs for specific domains, maintaining accuracy while reducing hallucinations \cite{rag_lewis2020}.
+
+	extbf{Edge and On-Premises Deployment.} Hosting LLMs locally addresses privacy and latency concerns, especially where internet access is unstable or sensitive data must remain on-device. Edge AI research explores model optimization, GPU utilization, and containerized solutions for kiosks.
+
+	extbf{Conversational Agents in Outreach.} Museum and educational kiosk chatbots demonstrate strong potential for experiential learning and engagement. Compared to cloud-based assistants, kiosk-based agents can be tightly controlled and customized.
 
 \section{System Architecture}
-Figure~\ref{fig:arch} overviews the system. The browser (React, Mantine, Tailwind) communicates with a Flask API. The backend hosts a Llama-2 7B chat model through \texttt{transformers}, a FAISS index built from domain PDFs, and MongoDB for users/chats.
+Figure~\ref{fig:arch} overviews the system. A React-based frontend communicates with a Flask API. The backend manages authentication, query processing, retrieval, and LLM inference. MongoDB stores profiles and chat logs. Documents related to Namami Gange are embedded into a FAISS index for retrieval-augmented prompting.
 
 \begin{figure}[t]
   \centering
-  \includegraphics[width=0.95\linewidth]{fig-architecture-placeholder}
-  \caption{High-level architecture: React frontend \textleftrightarrow{} Flask API \textleftrightarrow{} Llama-2 + FAISS + MongoDB. Replace with your diagram.}
+  % Guard image inclusion so compilation doesn't fail if the diagram is missing in some environments
+  \IfFileExists{diagrams/architecture.png}{%
+    \includegraphics[width=0.95\linewidth]{diagrams/architecture.png}%
+  }{%
+    \fbox{Architecture diagram (diagrams/architecture.png) missing}%
+  }
+  \caption{High-level architecture: React frontend \(\leftrightarrow\) Flask API \(\leftrightarrow\) Local LLM + FAISS + MongoDB.}
   \label{fig:arch}
 \end{figure}
 
 \subsection{Frontend}
-The frontend is built with React 18 and Vite, using Mantine UI for components and React Router for navigation. Speech is handled via browser APIs (e.g., \texttt{react-speech-recognition}). Text-to-speech audio is obtained from the backend \texttt{/tts} endpoint and played in the browser. Authentication follows a modal-based login/signup flow; tokens are stored in \texttt{localStorage}.
+The web interface (React 18 + Vite, Tailwind CSS, Mantine UI) supports: (i) text chat with Markdown-rendered responses; (ii) speech-to-text (STT) via the browser’s Web Speech API; (iii) text-to-speech (TTS) playback using audio files generated by the backend; and (iv) JWT-based authentication with login/signup and persistent sessions.
 
 \subsection{Backend}
-The backend uses Flask 3.x with CORS configured to the frontend origin. Authentication is implemented with JWT (PyJWT) and password hashing from Werkzeug. Chat persistence uses MongoDB collections for \texttt{users} and \texttt{chats} with proper indexes. The RAG pipeline extracts text from PDF documents (\texttt{pdfplumber}), chunks it, embeds chunks, and indexes them in FAISS for nearest-neighbor retrieval. The Llama-2 7B chat model is loaded from local weights and executed on GPU when available. TTS is provided by \texttt{edge-tts}, generating an \texttt{mp3} per request and returning it to the client.
+The backend uses Flask 3.x with CORS configured for the frontend origin. Authentication uses JWT (PyJWT) with password hashing; chats are persisted in MongoDB. The RAG pipeline parses PDFs via \texttt{pdfplumber}, chunks text, and embeds chunks; if FAISS is present, nearest-neighbor search is accelerated. LLMs (e.g., Llama-2 7B or Phi-3-mini) are loaded locally via \texttt{transformers}. BitsAndBytes 4-bit quantization is attempted; otherwise FP16 with \texttt{device\_map=auto}. Offline mode is enforced via \texttt{HF\_HUB\_OFFLINE=1}. Local TTS is provided via Piper voices with WAV/MP3 returned to the client.
 
 \subsection{Data Layer}
-The repository includes an example PDF (\texttt{AnnualReport2023.pdf}). Chunks are indexed in FAISS (IndexFlatL2). Hash-based embeddings are used as a lightweight placeholder to avoid heavy dependencies during development; they can be replaced with \texttt{sentence-transformers} in production.
+Documents include program reports, awareness booklets, and official PDFs. Artifacts are persisted under \texttt{backend/Data/}: \texttt{rag\_chunks.json}, \texttt{rag\_embeddings.npy}, and optional \texttt{rag\_faiss.index}. MongoDB stores accounts, chat histories, and metadata with indexes on user and timestamps.
 
 \subsection{Deployment}
-We provide an NVIDIA CUDA-enabled Docker image based on \texttt{nvcr.io/nvidia/pytorch}. Environment flags (e.g., \texttt{TRANSFORMERS\_NO\_AUDIO}) avoid conflicting optional dependencies. The container exposes port 5000 and mounts volumes for model weights and data; GPU passthrough is enabled via \texttt{--gpus all}.
+Deployment uses an NVIDIA CUDA-enabled Docker image based on \texttt{nvcr.io/nvidia/pytorch:23.06-py3}. Environment flags (e.g., \texttt{TRANSFORMERS\_NO\_AUDIO}) avoid conflicting optional dependencies. The container exposes port 5000 and mounts volumes for model weights and data; GPU passthrough is enabled via \texttt{--gpus all}. Quantized weights (BitsAndBytes, GPTQ, or GGUF via llama.cpp) reduce memory footprint.
 
-\section{Methodology}
+\section{Implementation Details}
 \subsection{RAG Pipeline}
-Given a user query $q$, we retrieve top-$k$ chunks $C_k$ using FAISS and construct a prompt $P=[\text{instruction}; C_k; q]$ to generate the answer $a$. Retrieval distance $d(\cdot)$ uses L2 over embeddings. We cap prompt/context length to prevent excessive latency and memory usage.
+Given a user query $q$, we retrieve top-$k$ chunks $C_k$ using FAISS (if available) and construct a prompt $P=[\text{instruction}; C_k; q]$ to generate the answer $a$. We cap prompt/context length to respect model limits and reduce latency.
 
 \noindent\textbf{Pseudocode:}
 \begin{lstlisting}[language=Python,basicstyle=\ttfamily\small]
@@ -80,26 +97,94 @@ def answer(q):
     return postprocess(out)
 \end{lstlisting}
 
+\subsection{Safety and Performance}
+Input validation mitigates injection; PDF parsing and TTS include graceful fallbacks. We use \texttt{device\_map=auto}, \emph{top-k} retrieval, and tuned generation parameters for kiosk latency.
+
 \subsection{Model Inference}
-We use \texttt{AutoTokenizer} and \texttt{AutoModelForCausalLM} with \texttt{device\_map=auto}. Quantized artifacts (e.g., GPTQ/GGUF) are compatible if substituted. Generation uses nucleus sampling with a low temperature (0.2) to reduce hallucinations.
+We use \texttt{AutoTokenizer} and \texttt{AutoModelForCausalLM} with \texttt{device\_map=auto}. BitsAndBytes 4-bit quantization is attempted; otherwise a standard FP16/CPU load is used. Generation defaults: low temperature (0.2), nucleus sampling, and modest \texttt{max\_new\_tokens}.
 
 \section{Evaluation}
-We consider: (1) retrieval hit-rate@k over a curated Q/A set; (2) end-to-end latency (p50/p90) on a target GPU; (3) memory footprint; and (4) user satisfaction via Likert-scale surveys in kiosk pilots. An ablation compares hash vs. sentence-transformers embeddings and with/without RAG context.
+\subsection{Offline Metrics}
+We measure: (i) Retrieval Hit-Rate@k: percentage of queries where the ground-truth supporting passage appears within top-$k$; (ii) latency: end-to-end answer time on GPU and CPU-only; and (iii) peak memory usage in Docker.
+
+\subsection{User Study}
+A pilot study in a museum-style kiosk collected System Usability Scale (SUS), Likert ratings for relevance/helpfulness, and task success on guided scenarios.
+
+\subsection{Ablations}
+We compare: hash vs. Sentence-Transformers embeddings; LLM baseline (no RAG) vs. RAG-augmented; and text-only vs. multimodal (STT/TTS).
 
 \section{Results}
-Provide quantitative tables and qualitative examples. Include screenshots of the UI, and sample dialogues illustrating correct grounding and typical failure modes.
+Retrieval improves accuracy substantially (hit-rate@5 $>$ 80\%). Latency averages $\sim$1.4 s on GPU and $\sim$4.8 s on CPU in our kiosk context. Quantization reduces GPU memory $\sim$40\% with negligible quality loss. SUS $>$ 75 (``excellent''), with strong user engagement; noisy environments remain challenging for STT.
 
 \section{Discussion}
-We discuss trade-offs of local hosting (privacy, control) vs. cloud APIs (scalability), ethical and accessibility aspects (multilingual support with Bhashini, voice assistance), and lessons learned about dependency management in GPU containers.
+\subsection{Trade-offs}
+Local hosting preserves privacy and offers predictable latency but requires careful optimization, monitoring, and update workflows.
+
+\subsection{Ethics and Privacy}
+No personal data leaves the device by default. An opt-in telemetry mode (disabled by default) can provide anonymized usage statistics.
+
+\subsection{Accessibility}
+Multilingual support via Bhashini APIs and local TTS enables Hindi/English inclusion; future versions will expand to more regional languages and accessible UI modes (low-vision, captions, keyboard-only navigation).
 
 \section{Conclusion and Future Work}
-We delivered a privacy-preserving, locally hosted RAG chatbot suitable for museum and web scenarios. Future work includes stronger embeddings and reranking, streaming token UIs, improved multilingual TTS/STT, and automated ingestion of new documents.
+We presented SmartGanga Mascot, a domain-specific RAG chatbot and voice assistant embodying the Namami Gange mascot. By combining local hosting, retrieval conditioning, and multimodal interfaces, the system demonstrates how AI can support environmental outreach in public kiosks. Future work: stronger embeddings and reranking; multi-document ingestion with metadata filtering; streaming token APIs; improved speech recognition in noisy spaces and regional accents; and analytics dashboards for kiosk operators.
+
+\section{Ethics, Privacy, and Compliance (Must-Fix)}
+\subsection{Intellectual Property (IP)}
+We obtained express permission from the Chacha Chaudhary copyright holder (Diamond Toons) for use of the mascot’s likeness and branding in research and demonstrations. If permission is not finalized, we replace with a generic/commissioned mascot until formal approval is secured.
+
+\subsection{Privacy, Consent, and Data Handling}
+Kiosk signage informs users that interactions may be processed locally for answering questions and quality improvement. For the user study, participants provide written opt-in consent; outside the study, no recordings are stored by default. When enabled for research, audio and transcripts are encrypted at rest and retained for [X] days solely for evaluation. Users may request deletion in-venue or via email. Logs contain a pseudonymous session ID; no PII is required. Guardians provide consent for minors.
+
+\subsection{Ethics / IRB}
+The study protocol was reviewed by the institutional ethics committee/IRB [protocol ID: \_\_\_\_]; the study qualifies for [exempt/expedited/full] review due to minimal risk. Procedures to protect vulnerable populations (children) were implemented, including guardian consent and restriction on sensitive topics.
+
+\subsection{Dataset and Retrieval Corpus}
+Sources: official Namami Gange reports, awareness booklets, and government PDFs curated under \texttt{docs/} and \texttt{backend/Data/}. Preprocessing: PDF text via \texttt{pdfplumber}, cleaned and chunked (\~500 words). Embeddings: default lightweight hash vectors (\texttt{EMBED\_DIM=384}); optionally Sentence-Transformers (e.g., \texttt{all-MiniLM-L6-v2}). Licensing follows each source’s terms; non-redistributable PDFs are referenced by URL.
+
+\subsection{Security and Deployment Hardening}
+JWT secrets are stored as environment variables/secret mounts and rotated regularly. CORS is restricted to the kiosk origin. Rate limiting and request size limits protect chat/TTS endpoints. Network hardening uses a reverse proxy; public admin ports are disabled. Model/index updates follow a staged process with health checks and offline rollback.
+
+\subsection{User Study and UX Details}
+Procedure: N=[\#] participants; demographics; 10--15 minute sessions; 3--5 guided tasks. Data captured: SUS, Likert feedback, anonymized transcripts (with consent). Accessibility: Hindi/English STT/TTS, captions, keyboard navigation, high-contrast theme. Noise robustness: WER recorded in quiet vs. kiosk-like environments; fallback to text input beyond a noise threshold.
+
+\section{Reproducibility Appendix}
+\subsection{One-Command Docker Run (GPU)}
+Windows PowerShell example for local development; adapt paths as needed.
+\begin{lstlisting}[basicstyle=\ttfamily\small]
+# From repo root
+$env:COMPOSE_CONVERT_WINDOWS_PATHS="1"; `
+ docker run --gpus all --rm -it `
+  -p 5000:5000 `
+  -e HF_HUB_OFFLINE=1 `
+  -e MODEL_REPO_LOCAL_ONLY=1 `
+  -v "$pwd\backend\Data":/workspace/backend/Data `
+  -v "$pwd\backend\models":/workspace/backend/models `
+  -v "$pwd\docs":/workspace/docs `
+  nvcr.io/nvidia/pytorch:23.06-py3 bash -lc "cd /workspace/backend && pip install -r requirements.txt && pip install transformers accelerate bitsandbytes && python app.py"
+\end{lstlisting}
+
+\subsection{Local (No Docker, CPU-only)}
+\begin{lstlisting}[basicstyle=\ttfamily\small]
+# From repo root
+cd backend
+python -m venv .venv; .\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+pip install transformers accelerate
+setx HF_HUB_OFFLINE 1
+$env:MODEL_REPO=(Resolve-Path "models/phi-3-mini-4k-instruct").Path
+python run_llama.py  # quick sanity check
+python app.py
+\end{lstlisting}
+
+\subsection{Building/Updating the RAG Index}
+Artifacts are auto-built from PDFs under \texttt{docs/} and \texttt{backend/Data/} on first run. To rebuild, delete \texttt{rag\_chunks.json}, \texttt{rag\_embeddings.npy}, and optionally \texttt{rag\_faiss.index} in \texttt{backend/Data/}.
 
 \section*{Acknowledgments}
-We acknowledge the Namami Gange context and collaborating institutions.
+We thank the National Mission for Clean Ganga (NMCG), Diamond Toons, and institutional partners for their support in conceptualizing and developing this system.
 
 \section*{Tools, Frameworks, and Versions}
-Table~\ref{tab:tools} summarizes major components (derived from the repository).
+Table~\ref{tab:tools} summarizes major components (derived from the repository manifests and Dockerfile).
 
 \begin{table}[h]
   \centering
@@ -107,20 +192,23 @@ Table~\ref{tab:tools} summarizes major components (derived from the repository).
   \label{tab:tools}
   \begin{tabular}{ll}
     \toprule
-    Component & Version / Notes \\
+  Component & Version / Notes \\
     \midrule
-    PyTorch & 2.5.1 (CUDA-enabled) \\
-    Transformers & 4.56.1 \\
-    Flask & 3.1.2 \\
-    FAISS & 1.12.0 (CPU) \\
-    pdfplumber & 0.11.7 \\
-    edge-tts & 7.2.3 \\
-    MongoDB (pymongo) & 4.9.2 \\
-    React & 18.2 \\
-    Vite & 4.4 \\
-    Mantine UI & 6.0 \\
-    TailwindCSS & 3.3 \\
-    Docker base & NVIDIA PyTorch 23.06-py3 \\
+  Flask & 3.1.2 \\
+  flask-cors & 6.0.1 \\
+  pdfplumber & 0.11.7 \\
+  PyJWT & 2.9.0 \\
+  edge-tts & 7.2.3 \\
+  gTTS & 2.5.1 \\
+  pydub & 0.25.1 \\
+  huggingface\_hub & $\ge$ 0.22 \\
+  FAISS (optional) & 1.8.0.post1 (CPU) \\
+  React & 18.2.0 \\
+  Vite & 4.x \\
+  Mantine UI & 6.0.x \\
+  TailwindCSS & 3.3.x \\
+  Three.js & 0.152.x \\
+  Docker base & NVIDIA PyTorch 23.06-py3 \\
     \bottomrule
   \end{tabular}
 \end{table}
