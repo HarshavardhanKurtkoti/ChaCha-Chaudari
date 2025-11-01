@@ -188,13 +188,22 @@ const ChatBot = ({ setIsSpeaking }) => {
 	const audioContextRef = useRef(null);
 	const analyserRef = useRef(null);
 	const micStreamRef = useRef(null);
-	// Play Gemini TTS audio for assistant responses
+	// Play TTS audio for assistant responses
 	async function playTTS(text) {
 		try {
-			const apiBase = import.meta?.env?.DEV ? '/api' : 'http://localhost:5000';
-			const voiceToSend = ttsVoiceRef.current || settings?.ttsVoice;
+			// Allow using a dedicated TTS server via VITE_TTS_BASE_URL; fallback to backend API
+			const prodApi = (import.meta?.env?.VITE_API_BASE_URL || window.location.origin.replace(/\/$/, ''));
+			const ttsBaseEnv = import.meta?.env?.VITE_TTS_BASE_URL || '';
+			const isDevHost = /:(5173|5174)$/i.test(window.location.origin || '') || !!import.meta?.env?.DEV;
+			// Prefer dedicated TTS base; otherwise force /api in Vite dev so the proxy sends to Flask
+			const apiBase = ttsBaseEnv || (isDevHost ? '/api' : prodApi);
+			console.debug('playTTS base resolved', { apiBase, ttsBaseEnv, prodApi, origin: window.location.origin });
+			// Pick a stable default if none selected (prefer male Hindi we installed)
+			const voiceToSend = ttsVoiceRef.current || settings?.ttsVoice || 'hi_IN-rohan-medium';
 			console.debug('playTTS sending voice=', voiceToSend);
-			const response = await fetch(`${apiBase}/tts`, {
+			const postUrl = `${String(apiBase).replace(/\/$/, '')}/tts`;
+			console.debug('playTTS POST', postUrl);
+			let response = await fetch(postUrl, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				// Use the ref to ensure the latest selected voice is used even when
@@ -206,11 +215,30 @@ const ChatBot = ({ setIsSpeaking }) => {
 					lang: settings?.ttsLang || 'en-IN',
 				}),
 			});
-			if (!response.ok) return;
+			if (!response.ok) {
+				console.warn('TTS /tts returned non-OK', response.status);
+				// Try a quick fallback endpoint if backend exposes it
+				try {
+					const fastUrl = `${String(apiBase).replace(/\/$/, '')}/fast-tts`;
+					console.debug('playTTS fallback POST', fastUrl);
+					response = await fetch(fastUrl, {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify({ text, voice: voiceToSend, rate: settings?.ttsRate, lang: settings?.ttsLang || 'en-IN' }),
+					});
+				} catch (e) { /* no-op */ }
+				if (!response.ok) return;
+			}
 			const blob = await response.blob();
-			const url = URL.createObjectURL(blob);
-			const audio = new Audio(url);
-			audio.play();
+			const audioUrl = URL.createObjectURL(blob);
+			const audio = new Audio(audioUrl);
+			audio.onended = () => { try { URL.revokeObjectURL(audioUrl); } catch {} };
+			try {
+				await audio.play();
+				console.debug('TTS playback started');
+			} catch (playErr) {
+				console.warn('Browser blocked autoplay or playback failed; user gesture may be required', playErr);
+			}
 		} catch (err) {
 			console.error('TTS error:', err);
 		}
@@ -259,16 +287,13 @@ const ChatBot = ({ setIsSpeaking }) => {
 		return () => { if (intervalId) clearInterval(intervalId); };
 	}, [listening]);
 
+	// Diagnostics for voice features and permissions on mount
 	useEffect(() => {
-		// On mount, make sure chat container is scrolled to bottom without smooth
-		scrollToBottom({ smooth: false });
-		// Diagnostics for voice features
 		try {
 			setSpeechApiSupported(!!(window.SpeechRecognition || window.webkitSpeechRecognition));
 		} catch { setSpeechApiSupported(false); }
 		setMediaDevicesSupported(!!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia));
 		setSecureContextFlag(!!(window.isSecureContext || window.location.protocol === 'https:' || /localhost|127\./.test(window.location.hostname)));
-		// Query permissions if available
 		try {
 			if (navigator.permissions && navigator.permissions.query) {
 				navigator.permissions.query({ name: 'microphone' }).then(res => {
@@ -324,7 +349,13 @@ const ChatBot = ({ setIsSpeaking }) => {
 		// console.log(state, listening);
 	}, [state]);
 
-	const baseURL = import.meta?.env?.DEV ? '/api' : 'http://localhost:5000';
+	// Resolve API base robustly across dev/prod/preview
+	const isViteDev = !!(typeof import.meta !== 'undefined' && import.meta?.env?.DEV);
+	const isViteDevPort = /:(5173|5174)$/i.test(window.location.origin || '');
+	const resolvedApiBase = (isViteDev || isViteDevPort)
+		? '/api'
+		: (import.meta?.env?.VITE_API_BASE_URL || window.location.origin || '').replace(/\/$/, '');
+	const baseURL = resolvedApiBase;
 
 	const api = axios.create({
 		baseURL: baseURL,
@@ -412,17 +443,37 @@ const ChatBot = ({ setIsSpeaking }) => {
 				if (audio && !isKidLocal && !payload.speed) payload.speed = 'fast'; else if (!payload.speed) payload.speed = 'balanced';
 			} catch {}
 
-			const resp = await fetch(`${baseURL}/llama-chat-stream`, {
+			// Debug log for networking
+			try { console.debug('llama-chat-stream request', { baseURL, url: `${baseURL}/llama-chat-stream`, payload }); } catch {}
+			const streamUrl = `${String(baseURL).replace(/\/$/, '')}/llama-chat-stream`;
+			const resp = await fetch(streamUrl, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify(payload)
 			});
 			if (!resp.ok || !resp.body) {
-				console.warn('Stream endpoint failed; falling back');
-				return await getResponse(userdata, '/llama-chat');
+				console.warn('Stream endpoint failed; falling back', { status: resp.status });
+				// Fallback to non-streaming path and handle UI updates here
+				try {
+					const fallback = await getResponse(userdata, '/llama-chat');
+					setState('idle');
+					if (fallback && fallback.data && fallback.data.result) {
+						addMessage('assistant', fallback.data.result);
+						try {
+							if (audio) await playTTS(fallback.data.result);
+						} catch {}
+					}
+					return;
+				} catch (e) {
+					console.error('fallback /llama-chat failed', e);
+					setState('idle');
+					return;
+				}
 			}
 			setState('thinking');
 			let created = false;
+			// Collect the full assistant text locally so we can TTS it reliably
+			let finalText = '';
 			if (setIsSpeaking && audio) setIsSpeaking(true);
 			const reader = resp.body.getReader();
 			const decoder = new TextDecoder();
@@ -441,6 +492,7 @@ const ChatBot = ({ setIsSpeaking }) => {
 						if (obj.delta) {
 							if (!created) { addMessage('assistant', ''); created = true; }
 							updateLastAssistant(String(obj.delta));
+							finalText += String(obj.delta);
 						} else if (obj.done) {
 							// meta end; could use for telemetry if needed
 						}
@@ -449,6 +501,16 @@ const ChatBot = ({ setIsSpeaking }) => {
 			}
 			setState('idle');
 			if (setIsSpeaking) setIsSpeaking(false);
+			// After the streamed response completes, auto-play TTS if voice mode is on
+			try {
+				// Prefer the locally accumulated text to avoid stale state closures
+				const textToSpeak = (finalText && finalText.trim().length > 0)
+					? finalText
+					: (() => { try { const last = (chatHistory || [])[Math.max(0, (chatHistory || []).length - 1)]; return (last && last.role === 'assistant') ? last.content : ''; } catch { return ''; } })();
+				if (audio && textToSpeak) {
+					await playTTS(textToSpeak);
+				}
+			} catch (e) { console.debug('stream TTS playback skipped', e); }
 		} catch (e) {
 			console.error('streamResponse error', e);
 			setState('idle');
@@ -687,6 +749,13 @@ const ChatBot = ({ setIsSpeaking }) => {
 									onClick={() => { resetHistory(); setState('idle'); setMessage(''); }}
 								>
 									New chat
+								</button>
+								<button
+									className='text-xs md:text-sm px-3 py-2 rounded-md bg-gray-800 text-gray-100 border border-gray-600 hover:bg-gray-700 flex items-center gap-2'
+									onClick={handleaudio}
+									title={audio ? 'Disable voice (no auto TTS)' : 'Enable voice (auto TTS)'}
+								>
+									{audio ? (<><HiOutlineSpeakerWave /><span className='hidden md:inline'>Voice on</span></>) : (<><HiOutlineSpeakerXMark /><span className='hidden md:inline'>Voice off</span></>)}
 								</button>
 								<label className='flex items-center gap-2 text-xs md:text-sm text-gray-300'>
 									<input type='checkbox' checked={streamingEnabled} onChange={(e)=>setStreamingEnabled(e.target.checked)} />
