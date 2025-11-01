@@ -15,7 +15,7 @@
 
 \begin{document}
 
-	itle{SmartGanga Mascot: An AI/ML and RAG-Powered Robot and 3D Digital Avatar for River--People Connect in Namami Gange}
+\title{SmartGanga Mascot: An AI/ML and RAG-Powered Robot and 3D Digital Avatar for River--People Connect in Namami Gange}
 
 \author{\IEEEauthorblockN{Harshavardhan Kurtkoti\IEEEauthorrefmark{1}, Ananya Ravishankar\IEEEauthorrefmark{2}}%
 \IEEEauthorblockA{\IEEEauthorrefmark{1}\,\IEEEauthorrefmark{2}Information Science and Technology, Presidency University, Bangalore, India\\%
@@ -41,11 +41,11 @@ Large Language Models (LLMs) like Llama-2 show strong conversational skills, but
 This paper introduces SmartGanga Mascot, a locally hosted, AI-powered chatbot and voice assistant that serves as the digital avatar for Chacha Chaudhary. The main contributions are: (i) an end-to-end, kiosk-friendly RAG chatbot system powered by LLMs and FAISS; (ii) a multimodal web interface supporting text, voice input, and voice output to promote inclusivity; (iii) edge-optimized Docker images for consistent GPU performance and offline operation; and (iv) a quantitative and qualitative assessment covering retrieval hit-rate, response time, memory usage, and user feedback.
 
 \section{Related Work}
-	extbf{Retrieval-Augmented Generation (RAG).} Prior work shows that RAG effectively adapts general-purpose LLMs for specific domains, maintaining accuracy while reducing hallucinations \cite{rag_lewis2020}.
+\textbf{Retrieval-Augmented Generation (RAG).} Prior work shows that RAG effectively adapts general-purpose LLMs for specific domains, maintaining accuracy while reducing hallucinations \cite{rag_lewis2020}.
 
-	extbf{Edge and On-Premises Deployment.} Hosting LLMs locally addresses privacy and latency concerns, especially where internet access is unstable or sensitive data must remain on-device. Edge AI research explores model optimization, GPU utilization, and containerized solutions for kiosks.
+\textbf{Edge and On-Premises Deployment.} Hosting LLMs locally addresses privacy and latency concerns, especially where internet access is unstable or sensitive data must remain on-device. Edge AI research explores model optimization, GPU utilization, and containerized solutions for kiosks.
 
-	extbf{Conversational Agents in Outreach.} Museum and educational kiosk chatbots demonstrate strong potential for experiential learning and engagement. Compared to cloud-based assistants, kiosk-based agents can be tightly controlled and customized.
+\textbf{Conversational Agents in Outreach.} Museum and educational kiosk chatbots demonstrate strong potential for experiential learning and engagement. Compared to cloud-based assistants, kiosk-based agents can be tightly controlled and customized.
 
 \section{System Architecture}
 Figure~\ref{fig:arch} overviews the system. A React-based frontend communicates with a Flask API. The backend manages authentication, query processing, retrieval, and LLM inference. MongoDB stores profiles and chat logs. Documents related to Namami Gange are embedded into a FAISS index for retrieval-augmented prompting.
@@ -125,28 +125,6 @@ No personal data leaves the device by default. An opt-in telemetry mode (disable
 \subsection{Accessibility}
 Multilingual support via Bhashini APIs and local TTS enables Hindi/English inclusion; future versions will expand to more regional languages and accessible UI modes (low-vision, captions, keyboard-only navigation).
 
-\section{Conclusion and Future Work}
-We presented SmartGanga Mascot, a domain-specific RAG chatbot and voice assistant embodying the Namami Gange mascot. By combining local hosting, retrieval conditioning, and multimodal interfaces, the system demonstrates how AI can support environmental outreach in public kiosks. Future work: stronger embeddings and reranking; multi-document ingestion with metadata filtering; streaming token APIs; improved speech recognition in noisy spaces and regional accents; and analytics dashboards for kiosk operators.
-
-\section{Ethics, Privacy, and Compliance (Must-Fix)}
-\subsection{Intellectual Property (IP)}
-We obtained express permission from the Chacha Chaudhary copyright holder (Diamond Toons) for use of the mascot’s likeness and branding in research and demonstrations. If permission is not finalized, we replace with a generic/commissioned mascot until formal approval is secured.
-
-\subsection{Privacy, Consent, and Data Handling}
-Kiosk signage informs users that interactions may be processed locally for answering questions and quality improvement. For the user study, participants provide written opt-in consent; outside the study, no recordings are stored by default. When enabled for research, audio and transcripts are encrypted at rest and retained for [X] days solely for evaluation. Users may request deletion in-venue or via email. Logs contain a pseudonymous session ID; no PII is required. Guardians provide consent for minors.
-
-\subsection{Ethics / IRB}
-The study protocol was reviewed by the institutional ethics committee/IRB [protocol ID: \_\_\_\_]; the study qualifies for [exempt/expedited/full] review due to minimal risk. Procedures to protect vulnerable populations (children) were implemented, including guardian consent and restriction on sensitive topics.
-
-\subsection{Dataset and Retrieval Corpus}
-Sources: official Namami Gange reports, awareness booklets, and government PDFs curated under \texttt{docs/} and \texttt{backend/Data/}. Preprocessing: PDF text via \texttt{pdfplumber}, cleaned and chunked (\~500 words). Embeddings: default lightweight hash vectors (\texttt{EMBED\_DIM=384}); optionally Sentence-Transformers (e.g., \texttt{all-MiniLM-L6-v2}). Licensing follows each source’s terms; non-redistributable PDFs are referenced by URL.
-
-\subsection{Security and Deployment Hardening}
-JWT secrets are stored as environment variables/secret mounts and rotated regularly. CORS is restricted to the kiosk origin. Rate limiting and request size limits protect chat/TTS endpoints. Network hardening uses a reverse proxy; public admin ports are disabled. Model/index updates follow a staged process with health checks and offline rollback.
-
-\subsection{User Study and UX Details}
-Procedure: N=[\#] participants; demographics; 10--15 minute sessions; 3--5 guided tasks. Data captured: SUS, Likert feedback, anonymized transcripts (with consent). Accessibility: Hindi/English STT/TTS, captions, keyboard navigation, high-contrast theme. Noise robustness: WER recorded in quiet vs. kiosk-like environments; fallback to text input beyond a noise threshold.
-
 \section{Reproducibility Appendix}
 \subsection{One-Command Docker Run (GPU)}
 Windows PowerShell example for local development; adapt paths as needed.
@@ -213,6 +191,6 @@ Table~\ref{tab:tools} summarizes major components (derived from the repository m
 \end{table}
 
 \bibliographystyle{IEEEtran}
-\bibliography{references}
+\bibliography{docs/references}
 
 \end{document}

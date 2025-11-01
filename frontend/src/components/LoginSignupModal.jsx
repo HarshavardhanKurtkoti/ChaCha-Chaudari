@@ -34,11 +34,18 @@ const LoginSignupModal = ({ isOpen, onClose, onAuthenticate }) => {
     } catch {/* ignore */}
   };
 
-  const CLIENT_ID = '77992688871-f1c03ogid6ofcm6jienapoj4gpgunv3d.apps.googleusercontent.com';
+  // Read Google OAuth Client ID from environment (set in Vercel as VITE_GOOGLE_CLIENT_ID)
+  const CLIENT_ID =
+    import.meta?.env?.VITE_GOOGLE_CLIENT_ID ||
+    import.meta?.env?.NEXT_PUBLIC_GOOGLE_CLIENT_ID ||
+    '';
 
   const handleGoogleAuth = async (credentialResponse) => {
     try {
-      const apiBase = import.meta?.env?.DEV ? '/api' : 'http://localhost:5000';
+      // Backend base URL: use VITE_API_BASE_URL in production; dev uses Vite proxy at /api
+      const apiBase = import.meta?.env?.DEV
+        ? '/api'
+        : (import.meta?.env?.VITE_API_BASE_URL || '/api');
       const googleToken = credentialResponse.credential;
 
       // Decode profile info from ID token and persist locally for UI personalization
@@ -129,6 +136,7 @@ const LoginSignupModal = ({ isOpen, onClose, onAuthenticate }) => {
     'http://localhost:5173',
     'http://127.0.0.1:5173',
     'http://localhost:3000',
+    'https://cha-cha-chaudari.vercel.app',
     envFrontend,
   ].filter(Boolean);
   const originOk = allowedDevOrigins.includes(currentOrigin);
@@ -271,7 +279,9 @@ const LoginSignupModal = ({ isOpen, onClose, onAuthenticate }) => {
 
             // Persist to backend if token available and refresh JWT
             const userToken = localStorage.getItem('userToken');
-            const apiBase = import.meta?.env?.DEV ? '/api' : 'http://localhost:5000';
+            const apiBase = import.meta?.env?.DEV
+              ? '/api'
+              : (import.meta?.env?.VITE_API_BASE_URL || '/api');
             if (userToken) {
               const safeToken = (userToken && userToken !== 'null') ? userToken : null;
               const updHeaders = { 'Content-Type': 'application/json' };

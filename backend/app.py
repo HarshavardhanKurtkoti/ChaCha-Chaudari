@@ -689,10 +689,20 @@ def _adult_short_about(topic: str) -> str:
 def create_app():
     app = Flask(__name__)
 
-    # CORS configuration (allow frontend origin if provided)
-    frontend_origin = env_vars.get('FRONTEND_URL')
+    # CORS configuration (allow frontend origins; support comma-separated env)
+    frontend_origin = os.environ.get('FRONTEND_URL') or env_vars.get('FRONTEND_URL')
+    if frontend_origin:
+        origins = [o.strip() for o in str(frontend_origin).split(',') if o.strip()]
+    else:
+        # Sensible defaults for local dev and the deployed Vercel app
+        origins = [
+            'http://localhost:5173',
+            'http://127.0.0.1:5173',
+            'http://localhost:3000',
+            'https://cha-cha-chaudari.vercel.app',
+        ]
     cors_kwargs = dict(
-        origins=[frontend_origin] if frontend_origin else "*",
+        origins=origins,
         allow_headers=["Content-Type", "Authorization"],
         methods=["GET", "POST", "OPTIONS"],
         max_age=86400,
