@@ -16,6 +16,8 @@ import { ChachaCanvas } from './Bot';
 
 const ChatBot = ({ setIsSpeaking }) => {
 	const { settings } = useSettings();
+	// audio=true: voice mode (auto TTS); audio=false: text-only
+	const [audio, setAudio] = useState(true);
     const particleCanvasRef = useRef(null);
 	// Keep a ref to the latest ttsVoice so event handlers created on mount use
 	// the current selection (avoids stale closures).
@@ -27,26 +29,26 @@ const ChatBot = ({ setIsSpeaking }) => {
 	// addMessage/getResponse/setIsSpeaking in deps to avoid re-wiring handlers repeatedly.
 	useEffect(() => {
 		const handler = (e) => {
-				if (e.detail && e.detail.message === 'hello') {
-					// Always activate voice mode (visuals) but only send the backend
-					// request if the activation was user-initiated. This prevents an
-					// automatic backend call on page refresh/autoplay.
-					setAudio(true);
+				if (e.detail && e.detail.message == 'hello') {
+					// Do not force-enable audio here; respect the user's Voice on/off toggle.
 					const userInitiated = !!e.detail.userInitiated;
 					if (!userInitiated) {
 						// If not user-initiated, do not add a user message or call backend.
-						// We optionally could show a local hint or simply activate voice UI.
 						return;
 					}
 					// User initiated: send the greeting prompt to backend as before
 					addMessage('user', 'hello');
 					setState('waiting');
-					getResponse({ prompt: 'hello' }, '/llama-chat').then(resp => {
+					getResponse({ prompt: 'hello', lang }, '/llama-chat').then(resp => {
 						setState('idle');
 						if (resp && resp.data && resp.data.result) {
 							addMessage('assistant', resp.data.result);
-							if (setIsSpeaking) setIsSpeaking(true);
-							playTTS(resp.data.result);
+							if (audio) {
+								if (setIsSpeaking) setIsSpeaking(true);
+								playTTS(resp.data.result);
+							} else {
+								if (setIsSpeaking) setIsSpeaking(false);
+							}
 						}
 					});
 				}
@@ -54,7 +56,7 @@ const ChatBot = ({ setIsSpeaking }) => {
 		window.addEventListener('activate-chatbot-voice', handler);
 		return () => window.removeEventListener('activate-chatbot-voice', handler);
 	// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, []);
+	}, [audio]);
 
 	// Canvas-based particle system (faster than DOM nodes). Respects settings.animationQuality
 	useEffect(() => {
@@ -191,16 +193,16 @@ const ChatBot = ({ setIsSpeaking }) => {
 	// Play TTS audio for assistant responses
 	async function playTTS(text) {
 		try {
-			// Allow using a dedicated TTS server via VITE_TTS_BASE_URL; fallback to backend API
-			const prodApi = (import.meta?.env?.VITE_API_BASE_URL || window.location.origin.replace(/\/$/, ''));
-			const ttsBaseEnv = import.meta?.env?.VITE_TTS_BASE_URL || '';
-			const isDevHost = /:(5173|5174)$/i.test(window.location.origin || '') || !!import.meta?.env?.DEV;
-			// Prefer dedicated TTS base; otherwise force /api in Vite dev so the proxy sends to Flask
-			const apiBase = ttsBaseEnv || (isDevHost ? '/api' : prodApi);
-			console.debug('playTTS base resolved', { apiBase, ttsBaseEnv, prodApi, origin: window.location.origin });
-			// Pick a stable default if none selected (prefer male Hindi we installed)
-			const voiceToSend = ttsVoiceRef.current || settings?.ttsVoice || 'hi_IN-rohan-medium';
-			console.debug('playTTS sending voice=', voiceToSend);
+			// Force TTS to the standalone proxy per user request
+			const forcedBase = 'http://127.0.0.1:6001';
+			const apiBase = forcedBase;
+			console.debug('playTTS base resolved (forced proxy)', { apiBase, origin: window.location.origin });
+			// Pick Piper voice based on current language selection
+			const currentLang = (typeof lang === 'string' && lang) || (settings?.ttsLang) || 'en-IN';
+			const isHindi = String(currentLang).toLowerCase().startsWith('hi');
+			const voiceToSend = isHindi ? 'hi_IN-rohan-medium' : 'en_US-kusal-medium';
+			const langToSend = isHindi ? 'hi-IN' : 'en-US';
+			console.debug('playTTS sending voice/lang=', voiceToSend, langToSend);
 			const postUrl = `${String(apiBase).replace(/\/$/, '')}/tts`;
 			console.debug('playTTS POST', postUrl);
 			let response = await fetch(postUrl, {
@@ -211,8 +213,8 @@ const ChatBot = ({ setIsSpeaking }) => {
 				body: JSON.stringify({
 					text,
 					voice: voiceToSend,
-					rate: settings?.ttsRate,
-					lang: settings?.ttsLang || 'en-IN',
+					rate: typeof settings?.ttsRate === 'number' ? Math.round(settings?.ttsRate) : 160,
+					lang: langToSend,
 				}),
 			});
 			if (!response.ok) {
@@ -244,14 +246,19 @@ const ChatBot = ({ setIsSpeaking }) => {
 		}
 	}
 	const [message, setMessage] = useState('');
-	// audio=true: voice mode (3D mascot), audio=false: text mode (popup)
-	const [audio, setAudio] = useState(true);
 	const { botState, setBotState } = useContext(BotStateContext);
 	const [isTyping, setIsTyping] = useState(false);
 	const [state, setState] = useState('idle');
 	const [lang, setLang] = useState('en-IN');
 	const [streamingEnabled, setStreamingEnabled] = useState(true);
 	const inputRef = useRef(null);
+
+	// UI tweaks based on selected language
+	const isHindiUI = String(lang || '').toLowerCase().startsWith('hi');
+
+	// Continuation UX: offer a 'Continue?' button if the answer likely truncated
+	const [continueHint, setContinueHint] = useState(false);
+	const [continueAppend, setContinueAppend] = useState(false);
 
 	const { chatHistory, addMessage, resetHistory, updateLastAssistant } = useMessageContext();
 
@@ -388,16 +395,13 @@ const ChatBot = ({ setIsSpeaking }) => {
 				try {
 					payload.history = (chatHistory || []).slice(-12);
 				} catch {}
-				// Per-request speed preset: use 'fast' in voice mode by default (except for kids)
+				// Previously we forced a concise, "fast"/fallback mode in voice. That produced
+				// gist-like answers (e.g., "Here's the gist…"). Now we default to full answers
+				// unless explicitly requested elsewhere. Leave speed undefined to let the
+				// server choose its normal behavior.
 				try {
-					const isKidLocal = (typeof ageGroup === 'string' ? ageGroup : payload.ageGroup) === 'kid';
-					if (audio && !isKidLocal && !payload.speed) payload.speed = 'fast';
+					void audio; // no-op, we simply avoid forcing speed here
 				} catch {}
-				// In voice mode we prefer fast fallback, but let kids get full richer answers
-				const isKid = payload.ageGroup === 'kid';
-				if (audio && !payload.fallback && !isKid) {
-					payload.fallback = true;
-				}
 				// Ensure we only send a sane Authorization header (avoid sending 'null' or empty)
 				const safeToken = (userToken && userToken !== 'null') ? userToken : null;
 				const headers = safeToken ? { 'Authorization': `Bearer ${safeToken}` } : {};
@@ -425,7 +429,7 @@ const ChatBot = ({ setIsSpeaking }) => {
 	};
 
 	// Streamed response reader (NDJSON with lines like {"delta":"..."} and final {"done":true})
-	const streamResponse = async (userdata) => {
+	const streamResponse = async (userdata, options = {}) => {
 		try {
 			let ageGroup = null;
 			let name = undefined;
@@ -439,12 +443,15 @@ const ChatBot = ({ setIsSpeaking }) => {
 			const payload = { ...userdata, ageGroup, name };
 			try { payload.history = (chatHistory || []).slice(-12); } catch {}
 			try {
-				const isKidLocal = (typeof ageGroup === 'string' ? ageGroup : payload.ageGroup) === 'kid';
-				if (audio && !isKidLocal && !payload.speed) payload.speed = 'fast'; else if (!payload.speed) payload.speed = 'balanced';
+				// Do NOT force 'fast' in voice mode; default to balanced/full responses
+				if (!payload.speed) payload.speed = 'balanced';
 			} catch {}
 
 			// Debug log for networking
-			try { console.debug('llama-chat-stream request', { baseURL, url: `${baseURL}/llama-chat-stream`, payload }); } catch {}
+			try { console.debug('llama-chat-stream request', { baseURL, url: `${baseURL}/llama-chat-stream`, payload, options }); } catch {}
+			// Ensure language hint travels with the request so backend can reply in Hindi when selected
+			const currentLang = (typeof lang === 'string' && lang) || (settings?.ttsLang) || 'en-IN';
+			payload.lang = currentLang;
 			const streamUrl = `${String(baseURL).replace(/\/$/, '')}/llama-chat-stream`;
 			const resp = await fetch(streamUrl, {
 				method: 'POST',
@@ -458,7 +465,11 @@ const ChatBot = ({ setIsSpeaking }) => {
 					const fallback = await getResponse(userdata, '/llama-chat');
 					setState('idle');
 					if (fallback && fallback.data && fallback.data.result) {
-						addMessage('assistant', fallback.data.result);
+						if (options.appendToLast) {
+							updateLastAssistant(String(fallback.data.result || ''));
+						} else {
+							addMessage('assistant', fallback.data.result);
+						}
 						try {
 							if (audio) await playTTS(fallback.data.result);
 						} catch {}
@@ -490,7 +501,15 @@ const ChatBot = ({ setIsSpeaking }) => {
 					try {
 						const obj = JSON.parse(line);
 						if (obj.delta) {
-							if (!created) { addMessage('assistant', ''); created = true; }
+							if (!created) {
+								if (options.appendToLast) {
+									// Do not create a new bubble; append to the existing last assistant
+									created = true;
+								} else {
+									addMessage('assistant', '');
+									created = true;
+								}
+							}
 							updateLastAssistant(String(obj.delta));
 							finalText += String(obj.delta);
 						} else if (obj.done) {
@@ -511,6 +530,17 @@ const ChatBot = ({ setIsSpeaking }) => {
 					await playTTS(textToSpeak);
 				}
 			} catch (e) { console.debug('stream TTS playback skipped', e); }
+
+			// Heuristic: if the answer is long and doesn't end with punctuation,
+			// offer a 'Continue?' action that will append more tokens to the same bubble.
+			try {
+				const longEnough = (finalText || '').trim().length > 800;
+				const endsClean = /[\.!?\)]\s*$/.test((finalText || '').trim());
+				if (longEnough && !endsClean) {
+					setContinueHint(true);
+					setContinueAppend(true);
+				}
+			} catch {}
 		} catch (e) {
 			console.error('streamResponse error', e);
 			setState('idle');
@@ -681,6 +711,9 @@ const ChatBot = ({ setIsSpeaking }) => {
 	// Centralized send function used by button click and Enter key
 	const sendMessage = async () => {
 		try {
+			// Any manual send cancels a pending continuation hint
+			setContinueHint(false);
+			setContinueAppend(false);
 			SpeechRecognition.stopListening();
 			resetTranscript();
 			setIsTyping(false);
@@ -689,11 +722,11 @@ const ChatBot = ({ setIsSpeaking }) => {
 				setState('waiting');
 				SpeechRecognition.abortListening();
 				if (streamingEnabled) {
-					await streamResponse({ prompt: message });
+					await streamResponse({ prompt: message, lang });
 					setMessage('');
 					resetTranscript();
 				} else {
-					let resp = await getResponse({ prompt: message }, '/llama-chat');
+					let resp = await getResponse({ prompt: message, lang }, '/llama-chat');
 					setMessage('');
 					resetTranscript();
 					setState('idle');
@@ -714,6 +747,15 @@ const ChatBot = ({ setIsSpeaking }) => {
 	const handleaudio = () => {
 		setAudio(!audio);
 		if (setIsSpeaking) setIsSpeaking(!audio); // update mascot speaking state
+	};
+
+	const continueAnswer = async () => {
+		try {
+			setContinueHint(false);
+			// Ask the model to continue; append to last assistant bubble
+			setState('waiting');
+			await streamResponse({ prompt: 'continue' }, { appendToLast: continueAppend });
+		} catch (e) { console.error('continueAnswer failed', e); }
 	};
 
 	return (
@@ -746,7 +788,7 @@ const ChatBot = ({ setIsSpeaking }) => {
 							<div className='flex items-center gap-2'>
 								<button
 									className='text-xs md:text-sm px-3 py-2 rounded-md bg-gray-800 text-gray-100 border border-gray-600 hover:bg-gray-700'
-									onClick={() => { resetHistory(); setState('idle'); setMessage(''); }}
+									onClick={() => { resetHistory(); setState('idle'); setMessage(''); setContinueHint(false); setContinueAppend(false); }}
 								>
 									New chat
 								</button>
@@ -810,6 +852,16 @@ const ChatBot = ({ setIsSpeaking }) => {
 										</div>
 									</div>
 								)}
+								{/* Continue hint when answer likely truncated */}
+								{continueHint && state === 'idle' && (
+									<div className='flex justify-start w-full'>
+										<div className='rounded-2xl px-4 py-2 shadow-sm text-sm bg-gray-700 text-gray-100 mb-3 flex items-center gap-3'>
+											<span>That answer was long. Continue?</span>
+											<button className='px-2 py-1 bg-blue-600 hover:bg-blue-700 rounded text-white' onClick={() => { void continueAnswer(); }}>Continue</button>
+											<button className='px-2 py-1 bg-gray-600 hover:bg-gray-500 rounded' onClick={() => { setContinueHint(false); setContinueAppend(false); }}>Dismiss</button>
+										</div>
+									</div>
+								)}
 							</div>
 							<div ref={bottomRef} />
 						</div>
@@ -836,7 +888,7 @@ const ChatBot = ({ setIsSpeaking }) => {
 										type='text'
 										ref={inputRef}
 										className='chat-pill__input chat-input'
-										placeholder={state === 'idle' ? 'Ask anything' : '...'}
+										placeholder={state === 'idle' ? (isHindiUI ? 'कुछ भी पूछें' : 'Ask anything') : '...'}
 										value={message}
 										onChange={handleInputChange}
 										onKeyDown={(e) => {

@@ -82,14 +82,42 @@ def _piper_pick_voice(preferred_id: Optional[str]) -> Optional[Dict[str, Any]]:
         return None
 
 
-def _synthesize_piper(text: str, voice_id: Optional[str]) -> str:
+def _rate_to_length_scale(rate: Optional[int]) -> Optional[float]:
+    """Map UI slider rate (≈50..300) to Piper length_scale (≈0.6..1.6).
+    We treat 160 as neutral -> 1.0, faster -> smaller, slower -> larger.
+    """
+    try:
+        if rate is None:
+            return None
+        r = int(rate)
+        if r <= 0:
+            return None
+        ls = 160.0 / float(r)
+        # Clamp within a reasonable range
+        if ls < 0.6:
+            ls = 0.6
+        if ls > 1.6:
+            ls = 1.6
+        return float(f"{ls:.3f}")
+    except Exception:
+        return None
+
+
+def _synthesize_piper(text: str, voice_id: Optional[str], *, length_scale: Optional[float] = None) -> str:
     if synthesize_with_piper is None:
         raise RuntimeError("Piper helpers not available. Ensure piper_tts.py is present in backend.")
     voice = _piper_pick_voice(voice_id)
     if not voice:
         raise RuntimeError(f"No Piper voices found in {PIPER_VOICES_DIR}")
     out_wav = _unique_wav()
-    synthesize_with_piper(PIPER_PATH, voice["paths"]["model"], voice["paths"]["config"], text, out_wav)
+    synthesize_with_piper(
+        PIPER_PATH,
+        voice["paths"]["model"],
+        voice["paths"]["config"],
+        text,
+        out_wav,
+        length_scale=length_scale,
+    )
     return out_wav
 
 
@@ -158,7 +186,14 @@ def make_app() -> Flask:
         t0 = time.time()
         try:
             if TTS_BACKEND == "piper":
-                out = _synthesize_piper(text, voice)
+                # Optional rate -> length_scale mapping
+                rate_val = data.get("rate")
+                try:
+                    rate_val = int(rate_val) if rate_val is not None else None
+                except Exception:
+                    rate_val = None
+                ls = _rate_to_length_scale(rate_val)
+                out = _synthesize_piper(text, voice, length_scale=ls)
             elif TTS_BACKEND == "kyutai":
                 try:
                     out = _synthesize_kyutai(text, voice)

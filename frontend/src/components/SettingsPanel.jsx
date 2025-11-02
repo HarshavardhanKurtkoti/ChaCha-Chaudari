@@ -4,10 +4,12 @@ import { useSettings } from 'context/SettingsContext';
 
 const SettingsPanel = ({ onResetProgress, onResetLeaderboard }) => {
   const { settings, setSetting } = useSettings();
-  // Fallback local Piper-like identifiers when API unavailable
+  // Fallback Piper model IDs based on voices present in backend/voices/piper
+  // (exact file names without extension as exposed by the TTS proxy)
   const fallbackVoices = useMemo(() => ([
-    { id: 'en_IN-male-medium', label: 'en_IN-male-medium (Piper)' },
-    { id: 'hi_IN-male-medium', label: 'hi_IN-male-medium (Piper)' },
+    { id: 'en_US-kusal-medium', label: 'en_US-kusal-medium (Piper)' },
+    { id: 'hi_IN-rohan-medium', label: 'hi_IN-rohan-medium (Piper)' },
+    { id: 'en_GB-aru-medium', label: 'en_GB-aru-medium (Piper)' },
   ]), []);
 
   const [voiceOptions, setVoiceOptions] = useState(fallbackVoices);
@@ -19,25 +21,22 @@ const SettingsPanel = ({ onResetProgress, onResetLeaderboard }) => {
     const loadVoices = async () => {
       setLoadingVoices(true);
       try {
-        const apiBase = import.meta?.env?.DEV ? '/api' : 'http://localhost:5000';
-        const res = await fetch(`${apiBase}/voices`);
+        // Always query the standalone Piper proxy for voices
+        const ttsBase = (import.meta?.env?.VITE_TTS_BASE_URL || 'http://127.0.0.1:6001').replace(/\/$/, '');
+        const res = await fetch(`${ttsBase}/voices`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         // Piper voices: [{ id, shortName, locale }]
-        const valid = (data?.voices || []).filter(v => {
-          const loc = String(v.locale || '').toUpperCase();
-          return loc === 'EN-IN' || loc === 'HI-IN';
-        });
-        const items = valid.map(v => ({ id: v.id || v.shortName, label: v.shortName || v.id }));
+        const items = (data?.voices || []).map(v => ({ id: v.id || v.shortName, label: v.shortName || v.id }));
         if (items.length) {
           const map = new Map();
           for (const it of items) { if (!map.has(it.id)) map.set(it.id, it); }
           const uniq = Array.from(map.values()).sort((a,b) => a.label.localeCompare(b.label));
           setVoiceOptions(uniq);
           if (!uniq.some(u => u.id === (settings?.ttsVoice))) {
-            // Prefer Piper en_IN, then Piper hi_IN, then first available voice
+            // Prefer the Kušal model if available, else Hindi (rohan), else first available
             const preferred =
-              (uniq.find(u => u.id.toLowerCase().startsWith('en_in'))?.id) ||
+              (uniq.find(u => u.id === 'en_US-kusal-medium')?.id) ||
               (uniq.find(u => u.id.toLowerCase().startsWith('hi_in'))?.id) ||
               uniq[0].id;
             setSetting('ttsVoice', preferred);
@@ -63,76 +62,58 @@ const SettingsPanel = ({ onResetProgress, onResetLeaderboard }) => {
     if (settings?.ttsVoice) setCurrentVoice(settings.ttsVoice);
   }, [settings?.ttsVoice]);
   // Compute the effective language hint to display (matches playSample logic)
-  const effectiveLang = (settings?.ttsLang && settings.ttsLang !== 'en-IN')
-    ? settings.ttsLang
-    : (currentVoice && currentVoice.toLowerCase().includes('hi') ? 'hi-IN' : 'en-IN');
+  // Compute language hint from selected Piper voice id
+  const effectiveLang = (() => {
+    if (!currentVoice) return 'en-US';
+    if (currentVoice.startsWith('hi_IN')) return 'hi-IN';
+    if (currentVoice.startsWith('en_IN')) return 'en-IN';
+    if (currentVoice.startsWith('en_US')) return 'en-US';
+    if (currentVoice.startsWith('en_GB')) return 'en-GB';
+    return 'en-US';
+  })();
   const playSample = async () => {
     try {
-      const apiBase = import.meta?.env?.DEV ? '/api' : 'http://localhost:5000';
+      const ttsBase = (import.meta?.env?.VITE_TTS_BASE_URL || 'http://127.0.0.1:6001').replace(/\/$/, '');
       // determine the voice to send (prefer immediate selection)
       const voiceToSend = currentVoice || settings?.ttsVoice || voiceOptions[0]?.id;
-      // derive a language hint: prefer an explicit user setting only if it's not the default 'en-IN'
-      const langToSend = (settings?.ttsLang && settings.ttsLang !== 'en-IN')
-        ? settings.ttsLang
-        : (voiceToSend && voiceToSend.toLowerCase().includes('hi') ? 'hi-IN' : 'en-IN');
+      // derive a language hint from chosen Piper voice id
+      const langToSend = (() => {
+        if (!voiceToSend) return 'en-US';
+        if (voiceToSend.startsWith('hi_IN')) return 'hi-IN';
+        if (voiceToSend.startsWith('en_IN')) return 'en-IN';
+        if (voiceToSend.startsWith('en_US')) return 'en-US';
+        if (voiceToSend.startsWith('en_GB')) return 'en-GB';
+        return 'en-US';
+      })();
       // choose sample text appropriate for the language so Hindi voices speak Hindi
       const sample = (langToSend && langToSend.toLowerCase().startsWith('hi'))
         ? 'नमस्ते, मेरा नाम चाचा चौधरी है'
         : 'I am ChaCha Chaudhary';
       const body = { text: sample, voice: voiceToSend, rate: settings?.ttsRate, lang: langToSend };
       console.debug('TTS sample request body:', body);
-      const res = await fetch(`${apiBase}/tts`, {
+      const res = await fetch(`${ttsBase}/tts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
       });
       if (!res.ok) {
-        // Try to get JSON error for debugging
+        // Try to surface JSON error for debugging
         try {
           const j = await res.json();
-          console.error('TTS /tts error response:', j);
-          window.alert('TTS server error: ' + (j?.error || JSON.stringify(j)));
+          console.error('Piper /tts error response:', j);
+          window.alert('Piper TTS error: ' + (j?.error || JSON.stringify(j)));
         } catch (e) {
-          console.error('TTS error, non-json response', e);
-          window.alert('TTS request failed (non-200 response)');
+          console.error('Piper TTS error, non-json response', e);
+          window.alert('Piper TTS request failed (non-200 response)');
         }
-        // attempt fallback to fast-tts
-        console.info('Attempting fallback to /fast-tts');
-        try {
-          const fb = await fetch(`${apiBase}/fast-tts`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: body.text, voice: body.voice, rate: body.rate })
-          });
-          if (fb.ok) {
-            const fblob = await fb.blob();
-            if (fblob && fblob.size > 0) {
-              const furl = URL.createObjectURL(fblob);
-              const fa = document.createElement('audio'); fa.src = furl; fa.autoplay = true; fa.controls = true; document.body.appendChild(fa);
-              return;
-            }
-          }
-        } catch (e) { console.warn('fast-tts fallback failed', e); }
-        return;
+        return; // no Azure/legacy fallback here — we want Piper only
       }
       const blob = await res.blob();
       // If the returned blob is empty, attempt fallback and surface an error
       if (!blob || blob.size === 0) {
-        console.error('TTS returned empty audio blob; size=0');
-        window.alert('TTS returned empty audio. Server may be misconfigured. Check backend logs.');
-        // attempt fallback to /fast-tts
-        try {
-          const fb = await fetch(`${apiBase}/fast-tts`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: body.text, voice: body.voice, rate: body.rate })
-          });
-          if (fb.ok) {
-            const fblob = await fb.blob();
-            if (fblob && fblob.size > 0) {
-              const furl = URL.createObjectURL(fblob);
-              const fa = document.createElement('audio'); fa.src = furl; fa.autoplay = true; fa.controls = true; document.body.appendChild(fa);
-              return;
-            }
-          }
-        } catch (e) { console.warn('fast-tts fallback failed', e); }
-        return;
+        console.error('Piper TTS returned empty audio blob; size=0');
+        window.alert('Piper TTS returned empty audio. Check the TTS proxy logs.');
+        return; // Piper only
       }
   // Create an audio element and append it so autoplay restrictions can be bypassed by user
   const url = URL.createObjectURL(blob);

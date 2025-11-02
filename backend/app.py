@@ -592,9 +592,55 @@ def _clean_snippet(txt: str, max_len: int = 350) -> str:
     except Exception:
         return (txt or "")[:max_len]
 
-def _kid_story_fallback(topic: str | None) -> str:
+def _is_mostly_english(text: str) -> bool:
+    try:
+        s = (text or "")
+        if not s:
+            return False
+        letters = sum('a' <= ch.lower() <= 'z' for ch in s)
+        devanagari = sum('\u0900' <= ch <= '\u097F' for ch in s)
+        total_letters = letters + devanagari + 1e-6
+        # Treat as mostly English when Latin letters dominate and Devanagari is scarce
+        return letters / total_letters > 0.70
+    except Exception:
+        return False
+
+def _translate_with_llm_to_hindi(src: str) -> str | None:
+    """Use the loaded LLM (if available) to translate text to Hindi.
+    Returns translated text or None if translation couldn't run.
+    Keeps token/time budget very small.
+    """
+    try:
+        if tokenizer is None or llm is None:
+            return None
+        prompt = (
+            "Translate the following text to Hindi in Devanagari script. Keep meaning and tone, "
+            "and do not add extra commentary.\n\nText:\n" + src.strip() + "\n\nHindi:"
+        )
+        inputs = tokenizer(prompt, return_tensors='pt', truncation=True, max_length=512).to(llm.device)
+        kwargs = dict(max_new_tokens=160, do_sample=False, use_cache=True)
+        out = llm.generate(**inputs, **kwargs)
+        input_len = int(inputs['input_ids'].shape[1])
+        gen = out[0][input_len:]
+        return tokenizer.decode(gen, skip_special_tokens=True).strip()
+    except Exception:
+        return None
+
+def _kid_story_fallback(topic: str | None, lang: str | None = None) -> str:
     """Short story-style fallback for kids when RAG is weak or model is missing."""
     t = (topic or "the Ganga river").strip()
+    # Hindi variant when lang starts with 'hi'
+    try:
+        if lang and str(lang).strip().lower().startswith('hi'):
+            return (
+                "यह बात मेरी स्थानीय नोट्स में साफ़ नहीं मिली, इसलिए एक छोटी-सी कहानी से समझाते हैं। "
+                "एक शाम गंगा किनारे आशा और उसके चचेरे भाई रोहन ने चमकता पानी देखा।"
+                "उन्हें कुछ प्लास्टिक कप तैरते दिखे, तो दोनों ने मिलकर उन्हें उठा लिया। पास के मछुआरे ने मुस्कराकर कहा, ‘जब हम नदी को साफ़ रखते हैं, तो मछलियाँ और डॉल्फ़िन स्वस्थ रहती हैं और हमारे शहर भी बेहतर बनते हैं।’ "
+                "अगले दिन उनकी कक्षा ने एक छोटा-सा बोर्ड लगाया: ‘कचरा डस्टबिन में डालें — हमारी नदी हमारा परिवार।’ "
+                "इतनी-सी पहल से घाट साफ़ दिखने लगा और दूसरे लोग भी मदद करने लगे। क्या मैं बच्चों के लिए एक छोटा-सा काम बताऊँ जो आप आज ही कर सकते हैं?"
+            )
+    except Exception:
+        pass
     core = (
         "I couldn't find this in my local notes; here’s a simple story to explain it. "
         "One evening by the Ganga, Asha and her cousin Rohan watched the water sparkle near their ghat. "
@@ -603,7 +649,7 @@ def _kid_story_fallback(topic: str | None) -> str:
         "That tiny action made the steps look nicer, and more people started helping. Would you like a tiny tip on how kids can care for the river?"
     )
     return core
-def _conversational_fallback(topic: str, name: str | None, age_group: str | None, history: list[dict] | None) -> str:
+def _conversational_fallback(topic: str, name: str | None, age_group: str | None, history: list[dict] | None, lang: str | None = None) -> str:
     """Heuristic, natural-sounding fallback when LLM isn't available.
     - Warmer tone, short and human.
     - References known topics with a one-line follow-up question.
@@ -625,8 +671,18 @@ def _conversational_fallback(topic: str, name: str | None, age_group: str | None
         pass
 
     # Greeting intents
-    greetings = {"hi", "hello", "hey", "yo", "hola", "namaste", "hi!", "hello!", "hey!"}
+    greetings = {"hi", "hello", "hey", "yo", "hola", "namaste", "hi!", "hello!", "hey!", "नमस्ते", "नमस्ते!"}
     if lt in greetings or any(lt.startswith(g+" ") for g in greetings):
+        # Hindi greeting when requested
+        try:
+            if lang and str(lang).strip().lower().startswith('hi'):
+                opener_hi = f"नमस्ते {nm}!" if name else "नमस्ते!"
+                return (
+                    f"{opener_hi} मैं चाचा हूँ। "
+                    "आज हम क्या जानें — गंगा, नमामि गंगे, या कुछ और?"
+                )
+        except Exception:
+            pass
         opener = f"Hey {nm}!" if name else "Hey there!"
         return (
             f"{opener} I’m ChaCha. Great to see you. "
@@ -634,13 +690,32 @@ def _conversational_fallback(topic: str, name: str | None, age_group: str | None
         )
 
     if "namami gange" in lt or "namami ganga" in lt:
+        # Hindi path
+        try:
+            if lang and str(lang).strip().lower().startswith('hi'):
+                core = (
+                    "नमामि गंगे गंगा की सफाई और संरक्षण के लिए भारत का मिशन है — सीवरेज ट्रीटमेंट बनाना, प्रदूषण कम करना, आवास बहाल करना और जनभागीदारी बढ़ाना।"
+                )
+                follow = "क्या किसी शहर की वास्तविक परियोजना का छोटा उदाहरण बताऊँ?"
+                return f"{('हाय ' + nm + ', ') if name else ''}{core} {follow}"
+        except Exception:
+            pass
         core = (
             "Namami Gange is India’s mission to clean and protect the Ganga — building sewage treatment, reducing pollution, restoring habitats, and involving people."
         )
         follow = "Want a quick example from a real city project?"
         return f"{f'Hi {nm}, ' if name else ''}{core} {follow}"
 
-    if "river ganga" in lt or "ganga river" in lt or "ganges" in lt:
+    if "river ganga" in lt or "ganga river" in lt or "ganges" in lt or "गंगा" in lt:
+        try:
+            if lang and str(lang).strip().lower().startswith('hi'):
+                core = (
+                    "गंगा करोड़ों लोगों की जीवनरेखा है — कईयों के लिए पवित्र, खेती और शहरों के लिए आवश्यक, और गंगेटिक डॉल्फ़िन जैसे अनोखे जीवों का घर।"
+                )
+                follow = "क्या हम वन्यजीव, संस्कृति या नदी को स्वस्थ रखने के तरीक़ों पर बात करें?"
+                return f"{('हाय ' + nm + ', ') if name else ''}{core} {follow}"
+        except Exception:
+            pass
         core = (
             "The Ganga is a lifeline for millions — sacred to many, vital for farms and cities, and home to unique wildlife like the Ganges river dolphin."
         )
@@ -649,16 +724,37 @@ def _conversational_fallback(topic: str, name: str | None, age_group: str | None
 
     # Generic, topic-aware fallback with a hint of continuity
     if last_user and last_user != t and len(last_user) > 3:
+        # English continuity note
         continuity = f"You mentioned earlier: '{last_user}'. "
+        # For Hindi mode, avoid leaking English by not quoting the previous text
+        continuity_hi = "आपने पहले यही पूछा था। "
     else:
         continuity = ""
+        continuity_hi = ""
     follow = "Does that help, or should I go deeper with a short example?"
+    follow_hi = "क्या यह मददगार है, या एक छोटा उदाहरण देकर और विस्तार करूँ?"
     # Slightly simpler phrasing for kids
     if ag == 'kid':
+        try:
+            if lang and str(lang).strip().lower().startswith('hi'):
+                return (
+                    f"हाय {nm}, मैं {t} के बारे में आसान शब्दों में समझाता हूँ। "
+                    f"{continuity_hi}मैं इसे छोटा और दोस्ताना रखूँगा ताकि आसानी से याद रहे। {follow_hi}"
+                )
+        except Exception:
+            pass
         return (
             f"Hi {nm}, here’s the idea about {t} in simple words you can follow. "
             f"{continuity}I’ll keep it short and friendly so it’s easy to remember. {follow}"
         )
+    # Adult/teen generic
+    try:
+        if lang and str(lang).strip().lower().startswith('hi'):
+            return (
+                f"{t} की मूल बातें — साफ़ और संक्षेप में। {continuity_hi}{follow_hi}"
+            )
+    except Exception:
+        pass
     return (
         f"Here’s the gist of {t}: clear and to the point. {continuity}{follow}"
     )
@@ -1194,6 +1290,8 @@ def create_app():
         try:
             data = request.get_json() or {}
             prompt = data.get("prompt")
+            # Optional language hint from client (e.g., 'hi-IN', 'en-IN')
+            lang_hint = (data.get('lang') or data.get('locale') or '').strip()
             # Optional fast/fallback flag from client to bypass LLM entirely
             force_fallback = False
             fb_req = data.get('fallback')
@@ -1304,7 +1402,7 @@ def create_app():
                     kid_greeting_story = True  # handled later in persona
                 else:
                     # Use quick fallback for non-kid or when model is unavailable/forced fallback
-                    base = _conversational_fallback(prompt, user_name, age_group, history)
+                    base = _conversational_fallback(prompt, user_name, age_group, history, lang_hint)
                     latency_ms = int((time.time() - req_start) * 1000)
                     return jsonify({
                         "result": base,
@@ -1376,6 +1474,36 @@ def create_app():
             persona_lines.append("Use light empathy and clarifying questions when the user’s goal is ambiguous.")
             persona_lines.append("If the user says ‘continue’, ‘go on’, or answers yes/no, continue naturally from the last assistant reply without restarting or repeating.")
             persona_lines.append("Do not include role labels or markdown headings in the reply.")
+            # If the user explicitly asks for a story, guide the model to produce one
+            try:
+                _pl = (prompt or '').strip().lower()
+                if ('कहानी' in (prompt or '')) or ('story' in _pl):
+                    if lang_hint and str(lang_hint).strip().lower().startswith('hi'):
+                        persona_lines.append("If the user asks for a story, write a short (120–180 words) engaging story in Hindi (Devanagari). Keep it simple and vivid, with a beginning–middle–end, and connect naturally to the Ganga/clean river theme if appropriate.")
+                    else:
+                        persona_lines.append("If the user asks for a story, write a short (120–180 words) engaging story. Keep it simple and vivid, with a beginning–middle–end, and connect naturally to the Ganga/clean river theme if appropriate.")
+            except Exception:
+                pass
+            # If the user explicitly asks for a story (Hindi: 'कहानी', English: 'story'), produce a short narrative
+            try:
+                _pl = (prompt or '').strip().lower()
+                if ('कहानी' in (prompt or '')) or ('story' in _pl):
+                    if lang_hint and str(lang_hint).strip().lower().startswith('hi'):
+                        persona_lines.append("If the user asks for a story, write a short (120–180 words) engaging story in Hindi (Devanagari). Keep it simple and vivid, with a beginning–middle–end, and connect naturally to the Ganga/clean river theme if appropriate.")
+                    else:
+                        persona_lines.append("If the user asks for a story, write a short (120–180 words) engaging story. Keep it simple and vivid, with a beginning–middle–end, and connect naturally to the Ganga/clean river theme if appropriate.")
+            except Exception:
+                pass
+            # Language guidance: honor explicit Hindi selection, else default to English
+            try:
+                if lang_hint and str(lang_hint).strip().lower().startswith('hi'):
+                    persona_lines.append("Respond entirely in Hindi using Devanagari script. Use natural, simple phrasing; avoid mixing English except proper nouns. When technical terms appear, explain them briefly in Hindi. If the provided context is in English, translate it faithfully to Hindi while answering.")
+                elif lang_hint:
+                    # For any explicit non-Hindi hint, keep to that language family (English variants)
+                    if str(lang_hint).strip().lower().startswith('en'):
+                        persona_lines.append("Respond in English (Indian English tone).")
+            except Exception:
+                pass
             # Sourcing guidance (keep replies conversational; no disclaimers in text)
             if rag_reliable:
                 persona_lines.append("Use the context below as your primary source. If you add general knowledge, keep it minimal and integrated naturally.")
@@ -1400,12 +1528,16 @@ def create_app():
                     continue
             conversation_block = "\n".join(convo_lines)
 
+            # Build a leak-resistant prompt using explicit tags so the model
+            # is less likely to echo the meta instructions. We also instruct it
+            # not to mention the tags.
             full_prompt = (
-                f"System instructions:\n{system_preface}\n\n"
-                f"Conversation so far:\n{conversation_block}\n\n"
-                f"Context:\n{context}\n\n"
-                f"User message:\n{prompt}\n\n"
-                f"Assistant reply:"
+                "<SYS>\n"
+                + system_preface
+                + "\nNever mention or quote the <SYS>, <CONTEXT>, or <CONV> sections.\n</SYS>\n\n"
+                + "<CONV>\n" + (conversation_block or "") + "\n</CONV>\n\n"
+                + "<CONTEXT>\n" + (context or "") + "\n</CONTEXT>\n\n"
+                + "User: " + prompt + "\nAssistant:"
             )
             # 2) If forced fallback or model missing, return a quick templated answer
             if force_fallback or model_missing:
@@ -1418,33 +1550,50 @@ def create_app():
                         readable = _is_chunk_readable(top)
                         if age_group == 'kid':
                             if rag_reliable and readable:
-                                snippet = _clean_snippet(top)
-                                result = (
-                                    f"Based on our local notes: {snippet}\n\nWould you like a short story or a simple example next?"
-                                )
+                                # For Hindi requests, avoid injecting English snippets — keep reply pure Hindi
+                                if lang_hint and str(lang_hint).strip().lower().startswith('hi'):
+                                    result = (
+                                        "मैं इसे एक छोटे उदाहरण या कहानी से समझा सकता हूँ — क्या आप चाहेंगे?"
+                                    )
+                                else:
+                                    snippet = _clean_snippet(top)
+                                    result = (
+                                        f"Based on our local notes: {snippet}\n\nWould you like a short story or a simple example next?"
+                                    )
                             else:
-                                result = _kid_story_fallback(prompt)
+                                result = _kid_story_fallback(prompt, lang_hint)
                         else:
                             if rag_reliable and readable:
                                 snippet = _clean_snippet(top)
-                                result = (
-                                    f"Based on our local notes: {snippet}\n\nWant me to expand or give a quick example?"
-                                )
+                                # Language-aware short template
+                                if lang_hint and str(lang_hint).strip().lower().startswith('hi'):
+                                    # Avoid showing English snippet in Hindi mode
+                                    result = ("हमारी स्थानीय नोट्स के आधार पर जानकारी उपलब्ध है। क्या मैं इसे आगे बढ़ाकर एक छोटा उदाहरण दूँ?")
+                                else:
+                                    result = (
+                                        f"Based on our local notes: {snippet}\n\nWant me to expand or give a quick example?"
+                                    )
                             elif readable:
                                 snippet = _clean_snippet(top)
-                                result = (
-                                    "I couldn't find this clearly in my local notes; here’s what I do have: "
-                                    f"{snippet}\n\nIf helpful, I can give a broader general explanation."
-                                )
+                                if lang_hint and str(lang_hint).strip().lower().startswith('hi'):
+                                    # Keep reply purely in Hindi; avoid showing raw English snippet
+                                    result = (
+                                        "यह बात मेरी स्थानीय नोट्स में साफ़ नहीं मिली। चाहें तो मैं सामान्य रूप से संक्षेप में समझा दूँ?"
+                                    )
+                                else:
+                                    result = (
+                                        "I couldn't find this clearly in my local notes; here’s what I do have: "
+                                        f"{snippet}\n\nIf helpful, I can give a broader general explanation."
+                                    )
                             else:
                                 result = None
                     except Exception:
                         result = None
                 if not result:
                     if age_group == 'kid':
-                        result = _kid_story_fallback(prompt)
+                        result = _kid_story_fallback(prompt, lang_hint)
                     else:
-                        result = _conversational_fallback(prompt, user_name, age_group, history)
+                        result = _conversational_fallback(prompt, user_name, age_group, history, lang_hint)
                 latency_ms = int((time.time() - req_start) * 1000)
                 return jsonify({
                     "result": result,
@@ -1474,6 +1623,12 @@ def create_app():
             # Base sampling settings
             temperature = 0.2
             top_p = 0.9
+            # Slightly increase creativity for Hindi to improve fluency on English‑tuned models
+            try:
+                if lang_hint and str(lang_hint).strip().lower().startswith('hi'):
+                    temperature = max(temperature, 0.45)
+            except Exception:
+                pass
 
             # Token budgets by device + preset
             if _LLM_DEVICE == 'cpu':
@@ -1490,6 +1645,19 @@ def create_app():
             default_tokens = preset_tokens[speed_preset]
             max_new_tokens = int(os.environ.get('LLAMA_MAX_NEW_TOKENS', str(default_tokens)))
 
+            # Allow a slightly longer reply for Hindi or when a story is requested
+            try:
+                if (lang_hint and str(lang_hint).strip().lower().startswith('hi')) or ('कहानी' in (prompt or '')) or ('story' in (prompt or '').lower()):
+                    max_new_tokens = int(max_new_tokens * 1.25)
+            except Exception:
+                pass
+
+            # Nudge fluency for Hindi; many English-tuned LLMs produce better Hindi with a bit more randomness
+            try:
+                if lang_hint and str(lang_hint).strip().lower().startswith('hi'):
+                    temperature = max(temperature, 0.45)
+            except Exception:
+                pass
             if age_group == 'kid':
                 temperature = 0.7
                 kid_tokens = kid_tokens_map[speed_preset]
@@ -1554,6 +1722,17 @@ def create_app():
                 input_len = int(inputs["input_ids"].shape[1])
                 gen_tokens = output[0][input_len:]
                 result = tokenizer.decode(gen_tokens, skip_special_tokens=True).strip()
+                # Post-process: strip any leaked meta labels or headings
+                try:
+                    import re as _re
+                    # Remove any accidental echoes of tag headers or "Instruction" lines
+                    lines = [ln for ln in result.split("\n") if not _re.search(r"^(System instructions:|<SYS>|</SYS>|<CONTEXT>|</CONTEXT>|<CONV>|</CONV>|Instruction\b|You are now role-?playing)", ln.strip(), _re.I)]
+                    # Also drop leading "Assistant:" label if present
+                    if lines and lines[0].strip().lower().startswith('assistant:'):
+                        lines[0] = lines[0].split(':',1)[1].strip()
+                    result = "\n".join(lines).strip()
+                except Exception:
+                    pass
                 # If generation hit the token/time cap (likely truncated), attempt one safe continuation
                 try:
                     gen_token_count = int(gen_tokens.shape[0]) if hasattr(gen_tokens, 'shape') else None
@@ -1617,15 +1796,23 @@ def create_app():
                         out_tokens = None
                     logger.warning('Empty generation from LLM: input_len=%s output_tokens=%s full_decoded_preview=%r', input_len, out_tokens, (full_decoded or '')[:300])
                     # Use safe fallback so clients aren't left with an empty result
-                    result = _conversational_fallback(prompt, user_name, age_group, history)
+                    result = _conversational_fallback(prompt, user_name, age_group, history, lang_hint)
                     logger.info('Applied conversational fallback due to empty generation; fallback_preview=%s', (result or '')[:200])
             except Exception as gen_err:
                 # Graceful fallback: short, friendly template answer to avoid request crash
                 logger.error(f"LLM generation failed, using fallback: {gen_err}")
-                result = _conversational_fallback(prompt, user_name, age_group, history)
+                result = _conversational_fallback(prompt, user_name, age_group, history, lang_hint)
             # Keep responses conversational — do not inject sourcing disclaimers in user-facing text.
             # We expose 'source' and 'rag_score' in metadata for the UI instead.
             # Log the generated response at INFO so it's visible in typical server logs.
+            # Final guard: if Hindi requested but text looks English, try translating via LLM.
+            try:
+                if lang_hint and str(lang_hint).strip().lower().startswith('hi') and _is_mostly_english(result or ''):
+                    translated = _translate_with_llm_to_hindi(result or '')
+                    if translated:
+                        result = translated
+            except Exception:
+                pass
             try:
                 preview = (result or '')[:200].replace('\n', ' ')
             except Exception:
@@ -1698,6 +1885,7 @@ def create_app():
             prompt = data.get('prompt')
             if not prompt:
                 return jsonify({"error": "No prompt provided"}), 400
+            lang_hint = (data.get('lang') or data.get('locale') or '').strip()
             # history and personalization
             history = data.get('history')
             if not isinstance(history, list):
@@ -1761,6 +1949,15 @@ def create_app():
             persona_lines.append("Ask one brief, tailored follow‑up question to keep the chat flowing, unless the user asks for a one‑shot answer.")
             persona_lines.append("Use light empathy and clarifying questions when the user’s goal is ambiguous.")
             persona_lines.append("Do not include role labels or markdown headings in the reply.")
+            # Language guidance (streaming): enforce Hindi when requested
+            try:
+                if lang_hint and str(lang_hint).strip().lower().startswith('hi'):
+                    persona_lines.append("Respond entirely in Hindi using Devanagari script. Keep it natural and simple; avoid English mixing except proper nouns. If the context is in English, translate it into Hindi as you answer.")
+                elif lang_hint:
+                    if str(lang_hint).strip().lower().startswith('en'):
+                        persona_lines.append("Respond in English (Indian English tone).")
+            except Exception:
+                pass
             if rag_reliable:
                 persona_lines.append("Use the context below as your primary source. If you add general knowledge, keep it minimal and integrated naturally.")
             else:
@@ -1779,11 +1976,12 @@ def create_app():
                     convo_lines.append(f"Assistant: {content}")
             conversation_block = "\n".join(convo_lines)
             full_prompt = (
-                f"System instructions:\n{system_preface}\n\n"
-                f"Conversation so far:\n{conversation_block}\n\n"
-                f"Context:\n{context}\n\n"
-                f"User message:\n{prompt}\n\n"
-                f"Assistant reply:"
+                "<SYS>\n"
+                + system_preface
+                + "\nNever mention or quote the <SYS>, <CONTEXT>, or <CONV> sections.\n</SYS>\n\n"
+                + "<CONV>\n" + (conversation_block or "") + "\n</CONV>\n\n"
+                + "<CONTEXT>\n" + (context or "") + "\n</CONTEXT>\n\n"
+                + "User: " + prompt + "\nAssistant:"
             )
 
             # Speed preset handling
@@ -1806,6 +2004,12 @@ def create_app():
                 preset_tokens = {'fast': 128, 'balanced': 196, 'quality': 320}
                 default_max_time = {'fast': 8.0, 'balanced': 14.0, 'quality': 22.0}[speed_preset]
             max_new_tokens = int(os.environ.get('LLAMA_MAX_NEW_TOKENS', str(preset_tokens[speed_preset])))
+            # Allow slightly longer replies for Hindi or story requests to reduce truncation
+            try:
+                if (lang_hint and str(lang_hint).strip().lower().startswith('hi')) or ('कहानी' in (prompt or '')) or ('story' in (prompt or '').lower()):
+                    max_new_tokens = int(max_new_tokens * 1.25)
+            except Exception:
+                pass
             if age_group == 'kid':
                 temperature = 0.7
             elif age_group == 'teen':
@@ -1816,7 +2020,7 @@ def create_app():
             # If no LLM or transformers streamer unavailable, stream fallback as one chunk
             if tokenizer is None or llm is None or TextIteratorStreamer is None:
                 def gen_fallback():
-                    text = _conversational_fallback(prompt, user_name, age_group, history)
+                    text = _conversational_fallback(prompt, user_name, age_group, history, lang_hint)
                     yield json.dumps({"delta": text}) + "\n"
                     meta = {
                         "done": True,

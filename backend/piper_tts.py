@@ -74,7 +74,15 @@ def list_piper_voices(voices_dir: str) -> List[Dict]:
     return _pair_models_with_configs(voices_dir)
 
 
-def synthesize_with_piper(piper_path: str, model_path: str, config_path: str, text: str, out_wav: str) -> None:
+def synthesize_with_piper(
+    piper_path: str,
+    model_path: str,
+    config_path: str,
+    text: str,
+    out_wav: str,
+    *,
+    length_scale: float | None = None,
+) -> None:
     """Call Piper CLI to synthesize `text` into `out_wav`.
 
     Piper reads text from stdin; we invoke it with model/config and output path.
@@ -93,6 +101,19 @@ def synthesize_with_piper(piper_path: str, model_path: str, config_path: str, te
         '-c', config_path,
         '-f', out_wav,
     ]
+
+    # Optional speaking rate via Piper's length_scale (smaller=faster, larger=slower)
+    if length_scale is not None:
+        try:
+            ls = float(length_scale)
+            # Clamp to a sane range
+            if ls < 0.5:
+                ls = 0.5
+            if ls > 2.0:
+                ls = 2.0
+            cmd += ['--length_scale', str(ls)]
+        except Exception:
+            pass
 
     # On Windows, creationflags can hide the extra console window; optional
     creationflags = 0
