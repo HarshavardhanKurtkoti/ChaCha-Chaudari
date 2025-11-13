@@ -21,12 +21,14 @@ const App = () => {
 	const [showModal, setShowModal] = useState(false);
 	const [showLoginSignupModal, setShowLoginSignupModal] = useState(false);
 
+	// Do NOT auto-open the login/signup modal on initial load.
+	// The welcome flow (pages/Greeting.jsx) decides when to open it
+	// after the user dismisses the welcome popup, and other pages can
+	// open it via AuthUIContext (e.g., Account page button).
+	// Keeping this effect empty prevents the login modal from appearing
+	// before the welcome popup or immediately on page refresh.
 	React.useEffect(() => {
-		// Show modal if no user token in localStorage
-		const userToken = localStorage.getItem('userToken');
-		if (!userToken) {
-			setShowLoginSignupModal(true);
-		}
+		// intentionally left blank
 	}, []);
 
 	const handleSaveUserDetails = async (details) => {

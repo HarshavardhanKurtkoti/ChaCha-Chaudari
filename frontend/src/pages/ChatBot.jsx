@@ -541,6 +541,19 @@ const ChatBot = ({ setIsSpeaking }) => {
 					setContinueAppend(true);
 				}
 			} catch {}
+
+			// Auto-continue for Hindi as separate bubbles when enabled via options
+			try {
+				const wantSegments = typeof options.autoContinueSegments === 'number' ? options.autoContinueSegments : 0;
+				const currentLang = (typeof lang === 'string' && lang) || (settings?.ttsLang) || 'en-IN';
+				const isHindi = String(currentLang).toLowerCase().startsWith('hi');
+				// Only auto-continue in Hindi and only when requested
+				if (isHindi && wantSegments > 0) {
+					// Small pause to let UI render previous bubble nicely
+					await new Promise(r => setTimeout(r, 250));
+					await streamResponse({ prompt: 'कृपया आगे बताइए', lang: currentLang }, { appendToLast: false, autoContinueSegments: wantSegments - 1 });
+				}
+			} catch {}
 		} catch (e) {
 			console.error('streamResponse error', e);
 			setState('idle');
@@ -722,7 +735,10 @@ const ChatBot = ({ setIsSpeaking }) => {
 				setState('waiting');
 				SpeechRecognition.abortListening();
 				if (streamingEnabled) {
-					await streamResponse({ prompt: message, lang });
+					// In Hindi, keep elaborating into 2 extra messages automatically
+					const isHindi = String(lang || '').toLowerCase().startsWith('hi');
+					const autoSegs = isHindi ? 2 : 0;
+					await streamResponse({ prompt: message, lang }, { autoContinueSegments: autoSegs });
 					setMessage('');
 					resetTranscript();
 				} else {

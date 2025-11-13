@@ -45,15 +45,13 @@ export function ChachaCanvas({ isSpeaking = false }) {
 const Bot = () => {
 	const [isSpeaking] = useState(false);
 
+	// Responsive, neutral-styled holder so Home page is not affected by
+	// Chat page CSS (ChatBot.css defines .chacha-3d-pill styles globally).
+	// We avoid that class here and let the parent control size.
 	return (
-		<>
-			{/* Standalone model canvas for legacy usage */}
-			<section className="px-3 py-4">
-				<div className="chacha-3d-pill" style={{ width: '500px', height: '600px', maxWidth: '500px', margin: '0 auto', borderRadius: '24px', overflow: 'hidden' }}>
-					<ChachaCanvas isSpeaking={isSpeaking} />
-				</div>
-			</section>
-		</>
+		<div style={{ width: '100%', height: '100%', borderRadius: '24px', overflow: 'hidden', background: '#fff' }}>
+			<ChachaCanvas isSpeaking={isSpeaking} />
+		</div>
 	);
 };
 

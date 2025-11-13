@@ -670,6 +670,12 @@ def _conversational_fallback(topic: str, name: str | None, age_group: str | None
     except Exception:
         pass
 
+    def _is_expand_request(txt: str) -> bool:
+        txt = (txt or '').lower().strip()
+        hi_keywords = ["विस्तार", "और बताओ", "ज्यादा", "डिटेल", "विस्तृत", "और समझाओ", "थोड़ा और", "और जानकारी", "और बताइए"]
+        en_keywords = ["expand", "elaborate", "more detail", "details", "continue", "tell me more", "go deeper"]
+        return any(k in txt for k in hi_keywords) or any(k in txt for k in en_keywords)
+
     # Greeting intents
     greetings = {"hi", "hello", "hey", "yo", "hola", "namaste", "hi!", "hello!", "hey!", "नमस्ते", "नमस्ते!"}
     if lt in greetings or any(lt.startswith(g+" ") for g in greetings):
@@ -721,6 +727,11 @@ def _conversational_fallback(topic: str, name: str | None, age_group: str | None
         )
         follow = "Should we talk about wildlife, culture, or how the river is kept healthy?"
         return f"{f'Hi {nm}, ' if name else ''}{core} {follow}"
+
+    # If user asks to expand/elaborate, give a deeper answer based on recent topic
+    if _is_expand_request(lt):
+        base_topic = last_user if last_user and last_user != t else last_user or t
+        return _detailed_about(base_topic or t, ag, lang)
 
     # Generic, topic-aware fallback with a hint of continuity
     if last_user and last_user != t and len(last_user) > 3:
@@ -781,6 +792,121 @@ def _adult_short_about(topic: str) -> str:
     return (
         f"Summary of {topic}: concise definition, 2–3 pillars, and intended outcomes."
     )
+
+def _detailed_about(topic: str, age_group: str | None, lang: str | None = None) -> str:
+    """Provide a deeper 5–7-line explanation of a topic in the selected language.
+    Used when the user asks to expand/elaborate.
+    """
+    t = (topic or "").strip()
+    ag = (age_group or "").strip().lower() or None
+    lt = t.lower()
+
+    is_hi = False
+    try:
+        if lang and str(lang).strip().lower().startswith('hi'):
+            is_hi = True
+    except Exception:
+        pass
+
+    if is_hi:
+        if "namami gange" in lt or "namami ganga" in lt or "नमामि गंगे" in lt:
+            return (
+                "नमामि गंगे का उद्देश्य गंगा को दीर्घकाल तक स्वच्छ और अविरल बनाए रखना है। "
+                "मुख्य कार्य: (1) सीवरेज शोधन संयंत्र (STP) का निर्माण और उन्नयन, (2) औद्योगिक अपशिष्ट पर नियंत्रण, "
+                "(3) नदी सतह की सफाई और ठोस कचरा प्रबंधन, (4) जैव-विविधता संरक्षण और तटीय वृक्षारोपण, (5) जनभागीदारी और गंगा प्रहरी। "
+                "उदाहरण: कानपुर/वाराणसी में नए STP से लाखों लीटर असंशोधित जल सीधे नदी में जाने से रुका। "
+                "परिणाम: BOD/DO सूचक बेहतर हुए, डॉल्फ़िन/घड़ियाल आवास में सुधार दिखा, नदी तटीय सौंदर्यीकरण से पर्यटन बढ़ा। "
+                "आप चाहें तो मैं किसी एक शहर की परियोजना का संक्षिप्त केस-स्टडी भी बता सकता हूँ।"
+            )
+        if "ganga" in lt or "ganges" in lt or "गंगा" in lt:
+            return (
+                "गंगा हिमालय से निकलकर मैदानों से होती हुई बंगाल की खाड़ी तक जाती है। "
+                "यह कृषि, पेयजल, नौवहन और आस्था—सबकी केंद्र है। "
+                "चुनौतियाँ: शहरी/औद्योगिक अपशिष्ट, असंगठित ठोस कचरा, तटीय क्षरण, जल-प्रवाह में कमी। "
+                "समाधान: उपचारित सीवरेज का पुनः उपयोग, वर्षा-जल संचयन, जल-मित्र कृषि, तटीय हरियाली, और समुदाय-आधारित निगरानी। "
+                "क्या मैं किसी एक चुनौती (जैसे औद्योगिक प्रदूषण) पर गहराई से समझाऊँ?"
+            )
+        # Generic detailed
+        return (
+            f"{t} को आसान भाषा में विस्तार से समझें: परिभाषा, 3–4 मुख्य बिंदु, एक छोटा उदाहरण, और करने योग्य कदम। "
+            "बताइए किस हिस्से पर और गहराई चाहिए—कारण, प्रभाव, नीतियाँ या ज़मीनी उदाहरण?"
+        )
+
+    # English detailed fallback
+    if "namami gange" in lt or "namami ganga" in lt:
+        return (
+            "Namami Gange aims for long-term river health: (1) STP build/upgrade, (2) industrial effluent control, (3) surface cleaning & solid waste, "
+            "(4) biodiversity & riparian plantations, (5) public participation (Ganga Praharis). Example: new STPs in Kanpur/Varanasi curbed untreated discharge. "
+            "Outcomes: improved BOD/DO, better habitats, cleaner ghats and tourism. I can share a short case study for any one city."
+        )
+    if "ganga" in lt or "ganges" in lt:
+        return (
+            "The Ganga runs from the Himalayas to the Bay of Bengal—vital for farms, drinking water, transport, and culture. "
+            "Challenges: urban/industrial discharge, unmanaged solid waste, bank erosion, reduced flows. "
+            "Solutions: treated reuse, rainwater harvesting, water-smart farming, riparian greens, community monitoring. "
+            "Want me to dive deeper into one challenge (e.g., industrial pollution)?"
+        )
+    return (
+        f"Here’s a deeper look at {t}: definition, 3–4 pillars, one example, and next steps. Tell me which part to expand further."
+    )
+
+# --- Progressive expansion helpers (for multi-message Hindi answers) ---
+def _is_expand_request_text(txt: str | None) -> bool:
+    s = (txt or '').strip().lower()
+    hi_keys = ["विस्तार", "आगे बताइए", "आगे बताओ", "आगे जारी", "जारी रखें", "और बताइए", "और बताओ", "कृपया आगे"]
+    en_keys = ["continue", "more", "elaborate", "expand", "go deeper", "next part"]
+    return any(k in s for k in hi_keys) or any(k in s for k in en_keys)
+
+def _count_prev_parts(history: list[dict] | None, lang: str | None) -> int:
+    if not history:
+        return 0
+    is_hi = str(lang or '').strip().lower().startswith('hi')
+    count = 0
+    try:
+        import re
+        pat = re.compile(r"भाग\s*(\d+)") if is_hi else re.compile(r"Part\s*(\d+)", re.I)
+        for m in history[-10:]:
+            if str(m.get('role','')).lower() != 'assistant':
+                continue
+            text = str(m.get('content') or '')
+            for num in pat.findall(text):
+                try:
+                    n = int(num)
+                    count = max(count, n)
+                except Exception:
+                    continue
+    except Exception:
+        return 0
+    return count
+
+def _last_non_expand_user(history: list[dict] | None) -> str | None:
+    if not history:
+        return None
+    for m in reversed(history[-8:]):
+        try:
+            if str(m.get('role','')).lower() == 'user':
+                txt = str(m.get('content') or '').strip()
+                if not _is_expand_request_text(txt):
+                    return txt
+        except Exception:
+            continue
+    return None
+
+def _detailed_parts(topic: str, lang: str | None) -> list[str]:
+    t = (topic or '').strip() or 'विषय'
+    is_hi = str(lang or '').strip().lower().startswith('hi')
+    if is_hi:
+        return [
+            f"परिचय ({t}): यह क्यों महत्वपूर्ण है, किसे लाभ होता है, और वर्तमान स्थिति क्या है।",
+            "मुख्य स्तंभ/पहल: 3–4 बिंदुओं में — क्या किया जा रहा है, कौन-सी संस्था जुड़ी है, और प्रगति कैसे मापते हैं।",
+            "उदाहरण + आगे के कदम: किसी एक शहर/क्षेत्र का छोटा केस‑स्टडी, फिर नागरिक के रूप में आप क्या कर सकते हैं।",
+        ]
+    else:
+        return [
+            f"Introduction to {t}: why it matters, who benefits, and the present landscape.",
+            "Core pillars/actions in 3–4 bullets: what is being done, by whom, and how progress is measured.",
+            "Example + next steps: a short city case study, then what a citizen can do today.",
+        ]
 
 def create_app():
     app = Flask(__name__)

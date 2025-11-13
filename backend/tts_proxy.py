@@ -28,6 +28,7 @@ import time
 import uuid
 import logging
 from typing import Optional, Dict, Any
+from threading import Lock
 
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
@@ -53,6 +54,9 @@ PIPER_VOICES_DIR = os.environ.get("PIPER_VOICES_DIR") or os.path.join(os.getcwd(
 os.makedirs(PIPER_VOICES_DIR, exist_ok=True)
 
 KYUTAI_WS_URL = os.environ.get("KYUTAI_WS_URL")  # e.g. ws://127.0.0.1:8000/tts
+
+# Serialize synthesis so only one audio is produced at a time
+_SPEAK_LOCK = Lock()
 
 
 def _unique_wav(prefix: str = "speech") -> str:
@@ -184,34 +188,36 @@ def make_app() -> Flask:
             return jsonify({"error": "No text provided"}), 400
         voice = data.get("voice") or None
         t0 = time.time()
-        try:
-            if TTS_BACKEND == "piper":
-                # Optional rate -> length_scale mapping
-                rate_val = data.get("rate")
-                try:
-                    rate_val = int(rate_val) if rate_val is not None else None
-                except Exception:
-                    rate_val = None
-                ls = _rate_to_length_scale(rate_val)
-                out = _synthesize_piper(text, voice, length_scale=ls)
-            elif TTS_BACKEND == "kyutai":
-                try:
-                    out = _synthesize_kyutai(text, voice)
-                except NotImplementedError as nie:
-                    return jsonify({"error": "kyutai proxy not configured", "details": str(nie)}), 503
-            else:
-                return jsonify({"error": f"Unsupported backend: {TTS_BACKEND}"}), 400
-            dt = int((time.time() - t0) * 1000)
-            log.info("/speak synthesized in %d ms via %s", dt, TTS_BACKEND)
-            resp = send_file(out, mimetype="audio/wav", as_attachment=False)
+        # Only allow one synthesis at a time to avoid overlapping audio on the client
+        with _SPEAK_LOCK:
             try:
-                resp.headers["X-TTS-Backend"] = TTS_BACKEND
-            except Exception:
-                pass
-            return resp
-        except Exception as e:
-            log.exception("speak failed")
-            return jsonify({"error": "synthesis failed", "details": str(e)}), 500
+                if TTS_BACKEND == "piper":
+                    # Optional rate -> length_scale mapping
+                    rate_val = data.get("rate")
+                    try:
+                        rate_val = int(rate_val) if rate_val is not None else None
+                    except Exception:
+                        rate_val = None
+                    ls = _rate_to_length_scale(rate_val)
+                    out = _synthesize_piper(text, voice, length_scale=ls)
+                elif TTS_BACKEND == "kyutai":
+                    try:
+                        out = _synthesize_kyutai(text, voice)
+                    except NotImplementedError as nie:
+                        return jsonify({"error": "kyutai proxy not configured", "details": str(nie)}), 503
+                else:
+                    return jsonify({"error": f"Unsupported backend: {TTS_BACKEND}"}), 400
+                dt = int((time.time() - t0) * 1000)
+                log.info("/speak synthesized in %d ms via %s", dt, TTS_BACKEND)
+                resp = send_file(out, mimetype="audio/wav", as_attachment=False)
+                try:
+                    resp.headers["X-TTS-Backend"] = TTS_BACKEND
+                except Exception:
+                    pass
+                return resp
+            except Exception as e:
+                log.exception("speak failed")
+                return jsonify({"error": "synthesis failed", "details": str(e)}), 500
 
     @app.post("/speak")
     def speak():

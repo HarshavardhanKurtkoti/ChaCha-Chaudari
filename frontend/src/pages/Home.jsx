@@ -192,8 +192,8 @@ const Home = () => {
       <section id="contact" className="relative z-10 w-full py-16">
         <div className="container mx-auto px-4 max-w-5xl">
           <motion.div initial={{ opacity: 0, y: 16 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: false, amount: 0.2 }} transition={{ duration: 0.5 }} className="text-center mb-8">
-            <h2 className="font-headline text-3xl md:text-4xl font-bold">Get in touch</h2>
-            <p className="mt-3 text-gray-600">Questions or suggestions about the portal? We’d love to hear from you.</p>
+            <h2 className="font-headline text-3xl md:text-4xl font-bold">Developers</h2>
+            <p className="mt-3 text-gray-600">Contact the developers — reach out for support, feedback, or contributions.</p>
           </motion.div>
           <div className="grid md:grid-cols-12 gap-6">
             <motion.div initial={{ opacity: 0, x: -16 }} whileInView={{ opacity: 1, x: 0 }} viewport={{ once: false, amount: 0.3 }} transition={{ duration: 0.45 }} className="md:col-span-7 rounded-xl bg-white p-6 shadow border">
@@ -208,14 +208,16 @@ const Home = () => {
               </form>
             </motion.div>
             <motion.div initial={{ opacity: 0, x: 16 }} whileInView={{ opacity: 1, x: 0 }} viewport={{ once: false, amount: 0.3 }} transition={{ duration: 0.45 }} className="md:col-span-5 rounded-xl bg-white p-6 shadow border">
-              <div className="space-y-4 text-sm">
-                <div>
-                  <h3 className="font-semibold text-gray-900">Email</h3>
-                  <a href="mailto:info@nmcg.gov.in" className="text-gray-600 hover:text-blue-600">info@nmcg.gov.in</a>
+              <div className="space-y-6 text-sm">
+                <div className="flex flex-col gap-1">
+                  <h3 className="font-semibold text-gray-900 text-base">Harshavardhan V Kurtkoti</h3>
+                  <a href="mailto:kurtkoti.harsha@gmial.com" className="text-gray-600 hover:text-blue-600 break-all">kurtkoti.harsha@gmial.com</a>
+                  <a href="tel:+917892125856" className="text-gray-600 hover:text-blue-600">+91 78921 25856</a>
                 </div>
-                <div>
-                  <h3 className="font-semibold text-gray-900">Phone</h3>
-                  <p className="text-gray-600">+91-11-0000-0000</p>
+                <div className="flex flex-col gap-1">
+                  <h3 className="font-semibold text-gray-900 text-base">Ananya R</h3>
+                  <a href="mailto:anublr04@gmail.com" className="text-gray-600 hover:text-blue-600 break-all">anublr04@gmail.com</a>
+                  <a href="tel:+918197714521" className="text-gray-600 hover:text-blue-600"></a>
                 </div>
               </div>
             </motion.div>

@@ -149,6 +149,28 @@ const LoginSignupModal = ({ isOpen, onClose, onAuthenticate }) => {
 
   if (!isOpen) return null;
 
+  // If clientId is missing, show a helpful configuration message instead of
+  // attempting Google auth (which would open a popup that errors with 400).
+  if (!CLIENT_ID) {
+    return (
+      <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+        <div className="bg-white rounded-xl shadow-2xl w-full max-w-md md:max-w-lg border border-gray-200 p-6">
+          <h2 className="text-xl font-bold text-rose-700 mb-3">Google Sign-in is not configured</h2>
+          <p className="text-sm text-gray-700 mb-2">Missing Vite environment variable <code className="bg-gray-100 px-1 rounded">VITE_GOOGLE_CLIENT_ID</code>.</p>
+          <ol className="list-decimal list-inside text-sm text-gray-700 space-y-1">
+            <li>Create or edit <code className="bg-gray-100 px-1 rounded">frontend/.env.local</code>.</li>
+            <li>Add: <code className="bg-gray-100 px-1 rounded break-all">VITE_GOOGLE_CLIENT_ID=your_client_id.apps.googleusercontent.com</code></li>
+            <li>Ensure Authorized JavaScript origin includes <code className="bg-gray-100 px-1 rounded">{currentOrigin}</code> in Google Cloud Console.</li>
+            <li>Restart the Vite dev server to apply env changes.</li>
+          </ol>
+          <div className="mt-4 flex justify-end">
+            <button onClick={onClose} className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-sm">Close</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
   <GoogleOAuthProvider clientId={CLIENT_ID}>
       <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 overflow-y-auto">
