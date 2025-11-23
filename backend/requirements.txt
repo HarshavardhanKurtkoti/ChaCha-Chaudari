@@ -16,3 +16,7 @@ gTTS==2.5.1
 pydub==0.25.1
 # Optional acceleration for RAG (speeds up similarity search). Install only if needed:
 # faiss-cpu==1.8.0.post1
+torch
+transformers
+accelerate
+sentence-transformers

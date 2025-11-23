@@ -28,6 +28,13 @@ except Exception:
     faiss = None  # type: ignore
     _FAISS_OK = False
 
+try:
+    from sentence_transformers import SentenceTransformer
+    _ST_OK = True
+except ImportError:
+    _ST_OK = False
+    SentenceTransformer = None
+
 ###############################################################################
 # Configuration
 ###############################################################################
@@ -103,6 +110,38 @@ def hash_embed(text: str, dim: int = EMBED_DIM) -> np.ndarray:
         vec /= norm
     return vec
 
+class SimpleEmbedder:
+    """Minimal encoder compatible with app.py expectations.
+
+    .encode(texts: List[str]) -> np.ndarray of shape (N, D)
+    Uses SentenceTransformers if available, otherwise hash-based embedding.
+    """
+
+    def __init__(self, dim: int = EMBED_DIM):
+        self.dim = dim
+        self.model = None
+        if _ST_OK:
+            try:
+                # Use a small, fast model by default
+                self.model = SentenceTransformer('all-MiniLM-L6-v2')
+                self.dim = self.model.get_sentence_embedding_dimension()
+            except Exception:
+                pass
+
+    def encode(self, texts):
+        if isinstance(texts, str):
+            texts = [texts]
+        if not texts:
+            return np.zeros((0, self.dim), dtype=np.float32)
+        if self.model:
+            return self.model.encode(texts)
+        vecs = [hash_embed(t, dim=self.dim) for t in texts]
+        return np.vstack(vecs)
+
+
+# Expose an embedder compatible with app.py: from rag_utils import embedder, index, chunks
+embedder = SimpleEmbedder()
+
 
 class SimpleIndex:
     """A tiny FAISS-like shim with a ``search`` method using cosine similarity.
@@ -143,8 +182,10 @@ def build_index(chunks_list, dim: int = EMBED_DIM):
             index_inst = SimpleIndex(np.zeros((0, dim), dtype=np.float32))
         empty_mat = np.zeros((0, dim), dtype=np.float32)
         return index_inst, empty_mat
-    emb_list = [hash_embed(c, dim=dim) for c in chunks_list]
-    mat = np.vstack(emb_list)
+    
+    # Use the global embedder
+    mat = embedder.encode(chunks_list)
+    
     if _FAISS_OK:
         index_inst = faiss.IndexFlatL2(mat.shape[1])
         index_inst.add(mat)
@@ -185,8 +226,10 @@ def _load_artifacts():
         if os.path.exists(EMB_PATH):
             emb = np.load(EMB_PATH)
             # Ensure shape consistency
-            if emb.ndim != 2 or emb.shape[1] != EMBED_DIM:
-                emb = None
+            # if emb.ndim != 2 or emb.shape[1] != EMBED_DIM:
+            #     emb = None
+            # Allow dimension mismatch if we are switching models, but we should probably invalidate
+            pass
     except Exception:
         emb = None
     if _FAISS_OK:
@@ -205,7 +248,13 @@ def _load_artifacts():
 # 1) Try to load persisted artifacts
 _chunks, _emb, _faiss_idx = _load_artifacts()
 
-if _chunks is None or _emb is None or (_FAISS_OK and _faiss_idx is None):
+# Check if embedding dimension matches current embedder
+_rebuild = False
+if _emb is not None:
+    if _emb.shape[1] != embedder.dim:
+        _rebuild = True
+
+if _chunks is None or _emb is None or (_FAISS_OK and _faiss_idx is None) or _rebuild:
     # 2) Build from PDFs on disk
     texts = []
     for root in DEFAULT_PDF_DIRS:
@@ -223,7 +272,7 @@ if _chunks is None or _emb is None or (_FAISS_OK and _faiss_idx is None):
             continue
     all_text = "\n\n".join(texts)
     chunks = chunk_text(all_text)
-    index, embeddings = build_index(chunks)
+    index, embeddings = build_index(chunks, dim=embedder.dim)
     # Persist artifacts (FAISS only if present)
     _save_artifacts(chunks, embeddings, index if _FAISS_OK else None)
 else:
@@ -235,31 +284,9 @@ else:
     else:
         index = SimpleIndex(embeddings)
 
-class SimpleEmbedder:
-    """Minimal encoder compatible with app.py expectations.
-
-    .encode(texts: List[str]) -> np.ndarray of shape (N, D)
-    Uses the same hash-based embedding to stay dependency-light.
-    """
-
-    def __init__(self, dim: int = EMBED_DIM):
-        self.dim = dim
-
-    def encode(self, texts):
-        if isinstance(texts, str):
-            texts = [texts]
-        if not texts:
-            return np.zeros((0, self.dim), dtype=np.float32)
-        vecs = [hash_embed(t, dim=self.dim) for t in texts]
-        return np.vstack(vecs)
-
-
-# Expose an embedder compatible with app.py: from rag_utils import embedder, index, chunks
-embedder = SimpleEmbedder()
-
 
 def query(text: str, top_k: int = 3):
-    q = hash_embed(text)
+    q = embedder.encode([text])[0]
     results = []
     if index is not None and _FAISS_OK:
         D, I = index.search(np.expand_dims(q, 0), top_k)
@@ -291,4 +318,5 @@ def get_status() -> dict:
             "embeddings": os.path.exists(EMB_PATH),
             "faiss_index": os.path.exists(FAISS_PATH),
         },
+        "embedder": "SentenceTransformer" if embedder.model else "Hash",
     }

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState, useCallback } from 'react';
-import { motion } from 'framer-motion';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import ProgressBar from 'components/ProgressBar';
 import Badge from 'components/Badge';
 import Leaderboard from 'components/Leaderboard';
@@ -8,6 +8,7 @@ import PlayerNamePrompt from 'components/PlayerNamePrompt';
 import DailyReward from 'components/DailyReward';
 import SettingsPanel from 'components/SettingsPanel';
 import PropTypes from 'prop-types';
+import { useTranslation } from 'hooks/useTranslation';
 
 // Local storage helpers
 const STORAGE_KEY = 'gangaGameProgress:v2';
@@ -21,81 +22,30 @@ const loadProgress = () => {
 };
 const saveProgress = (p) => localStorage.setItem(STORAGE_KEY, JSON.stringify(p));
 
-// Expanded badge rules (higher thresholds added so progress keeps growing)
+// Expanded badge rules
 const badgeRules = [
-  { id: 'seedling', label: 'Ganga Seedling', threshold: 25, color: 'bg-green-200 text-green-900' },
-  { id: 'streamkeeper', label: 'Stream Keeper', threshold: 75, color: 'bg-blue-200 text-blue-900' },
-  { id: 'river-guardian', label: 'River Guardian', threshold: 150, color: 'bg-indigo-200 text-indigo-900' },
-  { id: 'river-champion', label: 'River Champion', threshold: 300, color: 'bg-emerald-200 text-emerald-900' },
-  { id: 'river-legend', label: 'River Legend', threshold: 600, color: 'bg-yellow-200 text-yellow-900' },
-  { id: 'river-hero', label: 'River Hero', threshold: 1200, color: 'bg-pink-200 text-pink-900' },
+  { id: 'seedling', label: 'Ganga Seedling', threshold: 25, color: 'bg-green-500/20 text-green-300 border-green-500/50' },
+  { id: 'streamkeeper', label: 'Stream Keeper', threshold: 75, color: 'bg-blue-500/20 text-blue-300 border-blue-500/50' },
+  { id: 'river-guardian', label: 'River Guardian', threshold: 150, color: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/50' },
+  { id: 'river-champion', label: 'River Champion', threshold: 300, color: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50' },
+  { id: 'river-legend', label: 'River Legend', threshold: 600, color: 'bg-yellow-500/20 text-yellow-300 border-yellow-500/50' },
+  { id: 'river-hero', label: 'River Hero', threshold: 1200, color: 'bg-pink-500/20 text-pink-300 border-pink-500/50' },
 ];
 
-// Achievements independent of badges
 const achievementsCatalog = [
   { id: 'first-quiz', icon: '🧠', label: 'First Quiz Completed' },
   { id: 'first-trash', icon: '🗑️', label: 'First Trash Sort Completed' },
+  { id: 'first-cleanup', icon: '🌊', label: 'First Cleanup Completed' },
   { id: 'streak-3', icon: '🔥', label: '3-Day Streak' },
   { id: 'streak-7', icon: '⚡', label: '7-Day Streak' },
 ];
 
-// Quiz questions (kid-friendly and educational)
 const QUIZ = [
-  {
-    q: 'Why is the Ganga important to people?',
-    options: ['It looks pretty', 'It gives water and life to many', 'It is a road', 'It is a desert'],
-    a: 1,
-    fact: 'The Ganga supports drinking water, farming, fish, and wildlife for millions of people.'
-  },
-  {
-    q: 'What should we do with plastic bottles?',
-    options: ['Throw in river', 'Burn outside', 'Recycle properly', 'Bury in sand'],
-    a: 2,
-    fact: 'Recycling keeps plastic out of rivers and oceans and saves energy.'
-  },
-  {
-    q: 'Which is good for the river?',
-    options: ['Plant trees near banks', 'Dump soap water', 'Leave trash after picnics', 'Pour oil'],
-    a: 0,
-    fact: 'Trees protect soil, give shade, and help keep river water clean.'
-  },
-  {
-    q: 'Who keeps the river clean?',
-    options: ['Only the government', 'Only grown-ups', 'All of us together', 'No one can'],
-    a: 2,
-    fact: 'When everyone helps a little, the river stays healthy and happy.'
-  },
-  {
-    q: 'What is Namami Gange?',
-    options: ['A new cartoon', 'A program to clean and protect the Ganga', 'A sports team', 'A festival food'],
-    a: 1,
-    fact: 'Namami Gange is a mission to clean, protect, and restore the Ganga river.'
-  }
-  ,
-  {
-    q: 'How can you help keep rivers clean?',
-    options: ['Throw trash in water', 'Pick up litter and recycle', 'Use too much soap', 'Cut down trees'],
-    a: 1,
-    fact: 'Picking up litter and recycling reduces pollution that harms fish and people.'
-  },
-  {
-    q: 'Which of these is water-friendly farming?',
-    options: ['Using lots of chemical runoff', 'Planting buffer trees and reducing runoff', 'Draining wetlands', 'Dumping waste'],
-    a: 1,
-    fact: 'Trees and careful farming prevent soil and pollutants from entering rivers.'
-  },
-  {
-    q: 'Why should we not pour oil down the drain?',
-    options: ['It feeds fish', 'It causes pollution and harms aquatic life', 'It cleans water', 'It disappears'],
-    a: 1,
-    fact: 'Oil and grease pollute water and make it hard for plants and animals to live.'
-  },
-  {
-    q: 'What should you do with old batteries?',
-    options: ['Throw in regular trash', 'Put in river', 'Take to hazardous waste or recycling point', 'Burn them'],
-    a: 2,
-    fact: 'Batteries contain chemicals that need special disposal to avoid soil and water contamination.'
-  }
+  { q: 'Why is the Ganga important to people?', options: ['It looks pretty', 'It gives water and life to many', 'It is a road', 'It is a desert'], a: 1, fact: 'The Ganga supports drinking water, farming, fish, and wildlife for millions of people.' },
+  { q: 'What should we do with plastic bottles?', options: ['Throw in river', 'Burn outside', 'Recycle properly', 'Bury in sand'], a: 2, fact: 'Recycling keeps plastic out of rivers and oceans and saves energy.' },
+  { q: 'Which is good for the river?', options: ['Plant trees near banks', 'Dump soap water', 'Leave trash after picnics', 'Pour oil'], a: 0, fact: 'Trees protect soil, give shade, and help keep river water clean.' },
+  { q: 'Who keeps the river clean?', options: ['Only the government', 'Only grown-ups', 'All of us together', 'No one can'], a: 2, fact: 'When everyone helps a little, the river stays healthy and happy.' },
+  { q: 'What is Namami Gange?', options: ['A new cartoon', 'A program to clean and protect the Ganga', 'A sports team', 'A festival food'], a: 1, fact: 'Namami Gange is a mission to clean, protect, and restore the Ganga river.' },
 ];
 
 function QuizGame({ onScore }) {
@@ -103,11 +53,10 @@ function QuizGame({ onScore }) {
   const [selected, setSelected] = useState(null);
   const [score, setScore] = useState(0);
   const [finished, setFinished] = useState(false);
-
   const current = QUIZ[index];
 
   const handleAnswer = (i) => {
-    if (selected !== null) return; // already answered
+    if (selected !== null) return;
     setSelected(i);
     const correct = i === current.a;
     if (correct) setScore((s) => s + 10);
@@ -119,34 +68,38 @@ function QuizGame({ onScore }) {
         setIndex((ix) => ix + 1);
         setSelected(null);
       }
-    }, 900);
+    }, 1000);
   };
 
   if (finished) {
     return (
-      <div className="p-6 text-center">
-        <h3 className="text-2xl font-bold text-emerald-300">Quiz Complete!</h3>
-        <p className="mt-3 text-lg">You earned <span className="font-semibold">{score}</span> points.</p>
-        <p className="text-sm text-gray-400 mt-2">Great job learning how to protect our river!</p>
+      <div className="p-8 text-center">
+        <h3 className="text-3xl font-bold text-emerald-400 mb-4">Quiz Complete!</h3>
+        <p className="text-xl text-gray-200">You earned <span className="font-bold text-white">{score}</span> points.</p>
       </div>
     );
   }
 
   return (
-    <div className="p-6 text-center">
-      <div className="text-sm text-gray-400">Question {index + 1} of {QUIZ.length}</div>
-      <h3 className="text-2xl font-semibold mt-2 text-white">{current.q}</h3>
-      <div className="grid gap-4 mt-6 md:grid-cols-2">
+    <div className="p-6">
+      <div className="flex justify-between text-sm text-gray-400 mb-4">
+        <span>Question {index + 1} of {QUIZ.length}</span>
+        <span>Score: {score}</span>
+      </div>
+      <h3 className="text-2xl font-semibold mb-6 text-white">{current.q}</h3>
+      <div className="grid gap-4 md:grid-cols-2">
         {current.options.map((opt, i) => {
           const isCorrect = selected !== null && i === current.a;
           const isWrong = selected === i && i !== current.a;
+          let bg = 'bg-gray-800/50 hover:bg-gray-700 border-gray-600';
+          if (isCorrect) bg = 'bg-emerald-600 border-emerald-500';
+          if (isWrong) bg = 'bg-rose-600 border-rose-500';
+
           return (
             <button
               key={i}
               onClick={() => handleAnswer(i)}
-              className={`w-full px-4 py-3 rounded-xl text-sm font-medium transition-transform transform ${
-                isCorrect ? 'bg-emerald-500 text-white shadow-md scale-[1.01]' : isWrong ? 'bg-rose-500 text-white shadow-md' : 'bg-gray-800/50 hover:bg-gray-700 border border-gray-700 text-gray-100 hover:shadow-lg'
-              }`}
+              className={`w-full px-6 py-4 rounded-xl text-left border transition-all ${bg}`}
             >
               {opt}
             </button>
@@ -154,206 +107,177 @@ function QuizGame({ onScore }) {
         })}
       </div>
       {selected !== null && (
-        <p className="mt-4 text-sm text-gray-400"><span className="font-medium">Did you know?</span> {current.fact}</p>
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mt-6 p-4 rounded-lg bg-blue-900/30 border border-blue-500/30">
+          <p className="text-blue-200"><span className="font-bold">Did you know?</span> {current.fact}</p>
+        </motion.div>
       )}
     </div>
   );
 }
 QuizGame.propTypes = { onScore: PropTypes.func.isRequired };
 
-// Trash sort mini-game: pick the correct bin for a random item
-const TRASH = [
-  { name: 'Plastic bottle', bin: 'Recycle' },
-  { name: 'Banana peel', bin: 'Organic' },
-  { name: 'Newspaper', bin: 'Recycle' },
-  { name: 'Broken glass', bin: 'Recycle' },
-  { name: 'Oil/grease', bin: 'Hazard' },
-  { name: 'Food leftover', bin: 'Organic' },
-  { name: 'Battery', bin: 'Hazard' },
-  { name: 'Cardboard box', bin: 'Recycle' },
-  { name: 'Yoghurt cup', bin: 'Recycle' },
-  { name: 'Tea bag', bin: 'Organic' },
-  { name: 'Glass bottle', bin: 'Recycle' },
-  { name: 'Tin can', bin: 'Recycle' },
-  { name: 'Cloth rag', bin: 'Organic' },
-  { name: 'E-waste (old phone)', bin: 'Hazard' },
-  { name: 'Plastic bag', bin: 'Recycle' }
+const TRASH_ITEMS = [
+  { name: 'Plastic bottle', bin: 'Recycle', icon: '🥤' },
+  { name: 'Banana peel', bin: 'Organic', icon: '🍌' },
+  { name: 'Newspaper', bin: 'Recycle', icon: '📰' },
+  { name: 'Battery', bin: 'Hazard', icon: '🔋' },
+  { name: 'Apple core', bin: 'Organic', icon: '🍎' },
+  { name: 'Glass jar', bin: 'Recycle', icon: '🫙' },
 ];
-const BINS = ['Organic', 'Recycle', 'Hazard'];
-
 
 function TrashSort({ onScore }) {
-  // Use an index to avoid immediately repeating the same item
-  const [currentIndex, setCurrentIndex] = useState(() => Math.floor(Math.random() * TRASH.length));
-  const [streak, setStreak] = useState(0);
-  const [total, setTotal] = useState(0);
-  const [done, setDone] = useState(false);
+  const [currentItem, setCurrentItem] = useState(() => TRASH_ITEMS[Math.floor(Math.random() * TRASH_ITEMS.length)]);
+  const [score, setScore] = useState(0);
+  const [count, setCount] = useState(0);
+  const [finished, setFinished] = useState(false);
 
-  const next = () => setCurrentIndex((prev) => {
-    if (TRASH.length <= 1) return prev;
-    let idx = Math.floor(Math.random() * TRASH.length);
-    // avoid immediate repeat
-    let attempts = 0;
-    while (idx === prev && attempts < 6) { idx = Math.floor(Math.random() * TRASH.length); attempts += 1; }
-    return idx;
-  });
-
-  const choose = (bin) => {
-    const item = TRASH[currentIndex];
-    const correct = bin === item.bin;
-    setTotal((prev) => {
-      const newTotal = prev + 1;
-      if (correct) {
-        setStreak((s) => s + 1);
-        onScore(5, { mission: 'trash', event: 'progress' }); // small incremental points
-      } else {
-        setStreak(0);
-      }
-      if (newTotal >= 10) {
-        setDone(true);
-      } else {
-        next();
-      }
-      return newTotal;
-    });
+  const handleSort = (bin) => {
+    const correct = bin === currentItem.bin;
+    if (correct) {
+      setScore(s => s + 5);
+      onScore(5, { mission: 'trash', event: 'progress' });
+    }
+    if (count >= 9) {
+      setFinished(true);
+    } else {
+      setCount(c => c + 1);
+      setCurrentItem(TRASH_ITEMS[Math.floor(Math.random() * TRASH_ITEMS.length)]);
+    }
   };
 
-  if (done) {
-    return (
-      <div className="p-4">
-        <h3 className="text-xl font-bold text-emerald-300">Nice sorting!</h3>
-        <p className="mt-2 text-gray-200">You completed 10 items. Keep rivers clean by putting waste in the right bin.</p>
-      </div>
-    );
-  }
+  if (finished) return <div className="p-8 text-center"><h3 className="text-2xl font-bold text-emerald-400">Sorting Complete!</h3><p className="mt-2">Score: {score}</p></div>;
 
   return (
     <div className="p-6 text-center">
-      <div className="text-sm text-gray-400">Round {total + 1} of 10</div>
-      <h3 className="text-2xl font-semibold mt-2 text-white">Where should this go?</h3>
-      <div className="mt-6 p-6 rounded-lg bg-gray-900/50 border border-gray-700 text-gray-100 flex items-center justify-center gap-4">
-        <span className="text-4xl">🧺</span>
-        <span className="ml-2 text-lg font-medium text-gray-100">{TRASH[currentIndex].name}</span>
-      </div>
-      <div className="flex gap-4 mt-6 justify-center">
-        {BINS.map((b) => (
-          <button key={b} onClick={() => choose(b)} className="px-5 py-2 rounded-full bg-emerald-600 text-white shadow hover:bg-emerald-500 transition-transform hover:-translate-y-0.5">
-            {b}
+      <div className="text-6xl mb-4">{currentItem.icon}</div>
+      <h3 className="text-xl font-bold mb-8">{currentItem.name}</h3>
+      <div className="flex justify-center gap-4">
+        {['Organic', 'Recycle', 'Hazard'].map(bin => (
+          <button key={bin} onClick={() => handleSort(bin)} className="px-6 py-3 rounded-lg bg-gray-700 hover:bg-gray-600 border border-gray-500 transition-colors">
+            {bin}
           </button>
         ))}
       </div>
-      <div className="mt-4 text-sm text-gray-400">Streak: <span className="font-semibold text-emerald-300">{streak}</span></div>
     </div>
   );
 }
 TrashSort.propTypes = { onScore: PropTypes.func.isRequired };
 
-function BadgeCabinet({ points, badges }) {
-  const unlocked = useMemo(() => badgeRules.filter((b) => points >= b.threshold).map((b) => b.id), [points]);
+// --- New Game: River Cleanup ---
+function RiverCleanup({ onScore }) {
+  const [items, setItems] = useState([]);
+  const [score, setScore] = useState(0);
+  const [timeLeft, setTimeLeft] = useState(30);
+  const [finished, setFinished] = useState(false);
+  const containerRef = useRef(null);
+
+  // Spawn items
+  useEffect(() => {
+    if (finished) return;
+    const interval = setInterval(() => {
+      const id = Date.now();
+      const type = Math.random() > 0.3 ? 'trash' : 'fish'; // 70% trash
+      const icons = type === 'trash' ? ['🥤', '🥡', '🛍️', '🛢️'] : ['🐟', '🐠', '🐡'];
+      const icon = icons[Math.floor(Math.random() * icons.length)];
+      const top = Math.random() * 80 + 10; // 10% to 90% height
+      setItems(prev => [...prev, { id, type, icon, top, left: -10 }]);
+    }, 800);
+    return () => clearInterval(interval);
+  }, [finished]);
+
+  // Move items & Timer
+  useEffect(() => {
+    if (finished) return;
+    const timer = setInterval(() => {
+      setTimeLeft(t => {
+        if (t <= 1) {
+          setFinished(true);
+          onScore(score, { mission: 'cleanup', event: 'completed' });
+          return 0;
+        }
+        return t - 1;
+      });
+    }, 1000);
+
+    const mover = setInterval(() => {
+      setItems(prev => prev.map(item => ({ ...item, left: item.left + 1 })).filter(item => item.left < 105));
+    }, 50);
+
+    return () => { clearInterval(timer); clearInterval(mover); };
+  }, [finished, score, onScore]);
+
+  const handleClick = (id, type) => {
+    if (finished) return;
+    if (type === 'trash') {
+      setScore(s => s + 10);
+      setItems(prev => prev.filter(i => i.id !== id));
+    } else {
+      setScore(s => Math.max(0, s - 5)); // Penalty for clicking fish
+    }
+  };
+
+  if (finished) {
+    return (
+      <div className="p-8 text-center">
+        <h3 className="text-3xl font-bold text-emerald-400 mb-4">Cleanup Time's Up!</h3>
+        <p className="text-xl">You cleaned up the river and earned <span className="font-bold text-white">{score}</span> points.</p>
+      </div>
+    );
+  }
+
   return (
-    <div className="grid grid-cols-3 gap-2">
-      {badgeRules.map((b) => {
-        const isOn = unlocked.includes(b.id) || badges.includes(b.id);
-        return (
-          <div key={b.id} className={`rounded px-2 py-3 text-center border ${isOn ? b.color : 'bg-gray-100 text-gray-400 border-gray-200'}`}>
-            {b.label}
-          </div>
-        );
-      })}
+    <div className="relative h-96 bg-gradient-to-b from-blue-800 to-blue-600 rounded-xl overflow-hidden border border-blue-400/30 shadow-inner" ref={containerRef}>
+      <div className="absolute top-4 right-4 bg-black/40 px-3 py-1 rounded text-white font-mono">
+        Time: {timeLeft}s | Score: {score}
+      </div>
+      <div className="absolute bottom-0 w-full h-12 bg-blue-900/50 backdrop-blur-sm flex items-center justify-center text-sm text-blue-200">
+        Click trash 🥤 to clean. Don't click fish 🐟!
+      </div>
+      {items.map(item => (
+        <motion.div
+          key={item.id}
+          className="absolute text-4xl cursor-pointer select-none hover:scale-110 active:scale-90 transition-transform"
+          style={{ top: `${item.top}%`, left: `${item.left}%` }}
+          onClick={() => handleClick(item.id, item.type)}
+        >
+          {item.icon}
+        </motion.div>
+      ))}
     </div>
   );
 }
-BadgeCabinet.propTypes = {
-  points: PropTypes.number.isRequired,
-  badges: PropTypes.arrayOf(PropTypes.string).isRequired,
-};
+RiverCleanup.propTypes = { onScore: PropTypes.func.isRequired };
+
 
 export default function Games() {
+  const { t } = useTranslation();
   const [progress, setProgress] = useState(loadProgress());
-  const [activeGame, setActiveGame] = useState(null); // 'quiz' | 'trash' | null
+  const [activeGame, setActiveGame] = useState(null);
   const [showAchievement, setShowAchievement] = useState(null);
   const [playerName, setPlayerName] = useState(null);
   const [lbKey, setLbKey] = useState(0);
 
-  // motion variants for page and cards
-  const page = {
-    initial: { opacity: 0, y: 8 },
-    animate: { opacity: 1, y: 0, transition: { staggerChildren: 0.06, when: 'beforeChildren' } },
-    exit: { opacity: 0, y: -6 }
-  };
-  const card = {
-    initial: { opacity: 0, y: 8 },
-    animate: { opacity: 1, y: 0, transition: { duration: 0.45, ease: [0.16, 1, 0.3, 1] } },
-    hover: { scale: 1.02, boxShadow: '0 18px 40px rgba(2,6,23,0.12)' }
+  const addPoints = (pts, meta = {}) => {
+    const streak = progress.streak || 0;
+    const bonusMultiplier = Math.min(1 + (streak * 0.1), 1.5);
+    const delta = Math.round(pts * bonusMultiplier);
+    const updated = { ...progress, points: progress.points + delta, gamesPlayed: progress.gamesPlayed + 1 };
+    setProgress(updated);
+    saveProgress(updated);
+
+    // Check achievements
+    if (meta.mission === 'quiz' && meta.event === 'completed' && !progress.achievements?.includes('first-quiz')) grantAchievement('first-quiz');
+    if (meta.mission === 'trash' && meta.event === 'progress' && !progress.achievements?.includes('first-trash')) grantAchievement('first-trash');
+    if (meta.mission === 'cleanup' && meta.event === 'completed' && !progress.achievements?.includes('first-cleanup')) grantAchievement('first-cleanup');
   };
 
-  // reusable card class for consistent dark surface
-  const CARD = 'rounded-xl bg-gray-800/60 p-4 shadow-lg border border-gray-700 backdrop-blur-sm';
-
-  const grantAchievement = useCallback((id) => {
+  const grantAchievement = (id) => {
     if (progress.achievements?.includes(id)) return;
     const updated = { ...progress, achievements: [...(progress.achievements || []), id] };
     setProgress(updated);
     saveProgress(updated);
     const meta = achievementsCatalog.find(a => a.id === id);
     if (meta) setShowAchievement({ title: `${meta.label}!`, message: 'Great job!' });
-  }, [progress]);
-
-  useEffect(() => {
-    // award missing badges based on points
-    const needObjs = badgeRules.filter((b) => progress.points >= b.threshold && !progress.badges.includes(b.id));
-    if (needObjs.length) {
-      // add badges and notify for the first newly unlocked
-      const newBadges = needObjs.map((b) => b.id);
-      const updated = { ...progress, badges: [...new Set([...progress.badges, ...newBadges])] };
-      setProgress(updated);
-      saveProgress(updated);
-      // Show achievement modal for the first new badge
-      setShowAchievement({ title: `${needObjs[0].label} Unlocked!`, message: `You reached ${needObjs[0].threshold} points.` });
-    }
-  }, [progress]);
-
-  // Streak handling on mount/day change
-  useEffect(() => {
-    const today = new Date().toDateString();
-    if (!progress.lastPlayDate) {
-      const updated = { ...progress, lastPlayDate: today, streak: 1 };
-      setProgress(updated);
-      saveProgress(updated);
-      return;
-    }
-    if (progress.lastPlayDate !== today) {
-      const last = new Date(progress.lastPlayDate);
-      const now = new Date(today);
-      const dayDiff = Math.round((now - last) / (1000 * 60 * 60 * 24));
-      let newStreak = progress.streak || 0;
-      if (dayDiff === 1) newStreak += 1; else newStreak = 1;
-      const updated = { ...progress, lastPlayDate: today, streak: newStreak };
-      setProgress(updated);
-      saveProgress(updated);
-      if (newStreak === 3 && !progress.achievements?.includes('streak-3')) {
-        grantAchievement('streak-3');
-      }
-      if (newStreak === 7 && !progress.achievements?.includes('streak-7')) {
-        grantAchievement('streak-7');
-      }
-    }
-  }, [progress, grantAchievement]);
-
-
-  const addPoints = (pts, meta = {}) => {
-    const streak = progress.streak || 0;
-    const bonusMultiplier = Math.min(1 + (streak * 0.1), 1.5); // up to +50%
-    const delta = Math.round(pts * bonusMultiplier);
-    const updated = { ...progress, points: progress.points + delta, gamesPlayed: progress.gamesPlayed + 1 };
-    setProgress(updated);
-    saveProgress(updated);
-    if (meta.mission === 'quiz' && meta.event === 'completed' && !(progress.achievements || []).includes('first-quiz')) {
-      grantAchievement('first-quiz');
-    }
-    if (meta.mission === 'trash' && meta.event === 'progress' && !(progress.achievements || []).includes('first-trash')) {
-      grantAchievement('first-trash');
-    }
   };
 
   const resetProgress = () => {
@@ -363,162 +287,148 @@ export default function Games() {
   };
 
   const resetLeaderboard = () => {
-    try {
-      localStorage.removeItem('gangaLeaderboard:v1');
-    } catch (e) {
-      // ignore storage errors
-    }
-    setLbKey((k) => k + 1); // remount Leaderboard to reload from storage
+    try { localStorage.removeItem('gangaLeaderboard:v1'); } catch (e) { /* ignore */ }
+    setLbKey(k => k + 1);
   };
 
+  const CARD_CLASS = "bg-gray-800/40 backdrop-blur-md border border-gray-700/50 rounded-2xl p-6 shadow-xl";
+
   return (
-    <motion.div initial="initial" animate="animate" exit="exit" variants={page} className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-700 text-gray-100">
-      <div className="max-w-6xl mx-auto px-4 py-6 md:p-6">
-          <motion.header variants={card} className="rounded-2xl bg-gradient-to-br from-gray-800/70 to-gray-900/70 shadow-lg px-4 py-5 md:p-6 flex items-center gap-4 transform-gpu backdrop-blur-sm border border-gray-700">
-          <img src="https://nmcg.nic.in/images/nmcgGif.gif" alt="NMCG" loading="lazy" className="w-14 h-14" />
-          <div>
-            <h1 className="text-2xl font-extrabold text-white">River Guardians: Play & Learn</h1>
-            <p className="text-gray-300 text-sm">Have fun while learning how to protect Maa Ganga. Earn points and unlock badges!</p>
+    <div className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-gray-900 via-slate-900 to-black text-gray-100 p-4 md:p-8">
+      <div className="max-w-7xl mx-auto space-y-8">
+
+        {/* Header */}
+        <header className={`${CARD_CLASS} flex flex-col md:flex-row items-center gap-6`}>
+          <img src="https://nmcg.nic.in/images/nmcgGif.gif" alt="NMCG" className="w-16 h-16 object-contain" />
+          <div className="flex-1 text-center md:text-left">
+            <h1 className="text-3xl font-bold bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent">
+              {t('games.title')}
+            </h1>
+            <p className="text-gray-400 mt-1">{t('games.subtitle')}</p>
           </div>
-          <div className="ml-auto flex items-center gap-4">
-            <div className="flex flex-col items-end">
-              <div className="text-sm text-gray-300">Daily Streak</div>
-              <div className="text-xs text-gray-300">{progress.streak || 0} 🔥</div>
+          <div className="flex items-center gap-6">
+            <div className="text-right">
+              <div className="text-sm text-gray-400">Streak</div>
+              <div className="text-xl font-bold text-orange-400">{progress.streak || 0} 🔥</div>
             </div>
-            <div className="flex items-center gap-3">
-              <div className="rounded-full bg-emerald-500 text-white w-16 h-16 md:w-20 md:h-20 flex flex-col items-center justify-center shadow-lg">
-                <div className="text-sm font-bold">{progress.points}</div>
-                <div className="text-[10px]">pts</div>
+            <div className="w-20 h-20 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex flex-col items-center justify-center shadow-lg shadow-emerald-900/20">
+              <span className="text-2xl font-bold">{progress.points}</span>
+              <span className="text-[10px] uppercase tracking-wider opacity-80">pts</span>
+            </div>
+          </div>
+        </header>
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+
+          {/* Main Game Area */}
+          <div className="lg:col-span-8">
+            <motion.div layout className={`${CARD_CLASS} min-h-[500px]`}>
+              {!activeGame ? (
+                <div className="h-full flex flex-col items-center justify-center py-12">
+                  <h2 className="text-2xl font-semibold mb-8 text-blue-300">{t('games.mission')}</h2>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 w-full max-w-3xl px-4">
+                    <GameCard
+                      title={t('games.quiz')}
+                      icon="🧠"
+                      color="from-purple-500 to-indigo-600"
+                      onClick={() => setActiveGame('quiz')}
+                    />
+                    <GameCard
+                      title={t('games.trash')}
+                      icon="♻️"
+                      color="from-emerald-500 to-teal-600"
+                      onClick={() => setActiveGame('trash')}
+                    />
+                    <GameCard
+                      title={t('games.cleanup')}
+                      icon="🌊"
+                      color="from-blue-500 to-cyan-600"
+                      onClick={() => setActiveGame('cleanup')}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="h-full">
+                  <div className="flex justify-between items-center mb-6 border-b border-gray-700 pb-4">
+                    <h2 className="text-xl font-semibold text-blue-300">
+                      {activeGame === 'quiz' && t('games.quiz')}
+                      {activeGame === 'trash' && t('games.trash')}
+                      {activeGame === 'cleanup' && t('games.cleanup')}
+                    </h2>
+                    <button onClick={() => setActiveGame(null)} className="text-sm text-gray-400 hover:text-white transition-colors">
+                      ← Back to Menu
+                    </button>
+                  </div>
+                  {activeGame === 'quiz' && <QuizGame onScore={addPoints} />}
+                  {activeGame === 'trash' && <TrashSort onScore={addPoints} />}
+                  {activeGame === 'cleanup' && <RiverCleanup onScore={addPoints} />}
+                </div>
+              )}
+            </motion.div>
+          </div>
+
+          {/* Sidebar */}
+          <div className="lg:col-span-4 space-y-6">
+            <div className={CARD_CLASS}>
+              <PlayerNamePrompt onChange={setPlayerName} />
+            </div>
+
+            <div className={CARD_CLASS}>
+              <h3 className="font-semibold text-gray-200 mb-4">Badges</h3>
+              <div className="grid grid-cols-3 gap-2">
+                {badgeRules.map(b => {
+                  const unlocked = progress.points >= b.threshold;
+                  return (
+                    <div key={b.id} className={`aspect-square rounded-lg flex flex-col items-center justify-center p-2 text-center border ${unlocked ? b.color : 'bg-gray-800 border-gray-700 opacity-50'}`}>
+                      <div className="text-2xl mb-1">{unlocked ? '🏆' : '🔒'}</div>
+                      <div className="text-[10px] leading-tight">{b.label}</div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
-          </div>
-        </motion.header>
 
-        <section className="grid grid-cols-12 gap-4 md:gap-6 mt-6 items-start">
-          {/* Mission area: large rounded container with centered buttons */}
-          <motion.div variants={card} className={`col-span-12 ${CARD.replace('p-4','p-6')} rounded-2xl`}>
-            <div className="max-w-3xl mx-auto text-center py-6">
-              {!activeGame && (
-                <>
-                  <h3 className="font-semibold text-blue-700 text-lg mb-4">Choose a mission</h3>
-                  <div className="flex flex-wrap gap-3 md:gap-6 justify-center">
-                    <motion.button whileHover={{ scale: 1.03 }} whileFocus={{ scale: 1.02 }} onClick={() => setActiveGame('quiz')} className="px-6 py-3 rounded-md bg-gradient-to-br from-gray-700 to-gray-800 border border-gray-700 hover:brightness-110">
-                      <div className="text-sm font-semibold text-white">Ganga quiz</div>
-                    </motion.button>
-                    <motion.button whileHover={{ scale: 1.03 }} whileFocus={{ scale: 1.02 }} onClick={() => setActiveGame('trash')} className="px-6 py-3 rounded-md bg-gradient-to-br from-gray-700 to-gray-800 border border-gray-700 hover:brightness-110">
-                      <div className="text-sm font-semibold text-white">Trash sort</div>
-                    </motion.button>
-                  </div>
-                </>
-              )}
-
-              {activeGame === 'quiz' && (
-                <div>
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="font-semibold text-blue-700 text-lg">Mission: Ganga Quiz</h3>
-                    <button className="text-sm text-blue-700 underline" onClick={() => setActiveGame(null)}>Back</button>
-                  </div>
-                  <QuizGame onScore={(pts) => addPoints(pts)} />
-                </div>
-              )}
-
-              {activeGame === 'trash' && (
-                <div>
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="font-semibold text-blue-700 text-lg">Mission: Trash Sort</h3>
-                    <button className="text-sm text-blue-700 underline" onClick={() => setActiveGame(null)}>Back</button>
-                  </div>
-                  <TrashSort onScore={(pts) => addPoints(pts)} />
-                </div>
-              )}
-            </div>
-          </motion.div>
-
-          {/* Two-column layout: left small stacked boxes, right big badges + daily */}
-          <div className="col-span-12 grid grid-cols-12 gap-4 md:gap-6">
-            <div className="col-span-12 lg:col-span-6 space-y-6">
-              <motion.div variants={card} className={CARD}>
-                <PlayerNamePrompt onChange={setPlayerName} />
-              </motion.div>
-
-              <motion.div variants={card} className={CARD}>
-                <h3 className="font-semibold text-gray-100">Leaderboard</h3>
-                <Leaderboard key={lbKey} currentUser={playerName || undefined} currentScore={progress.points} />
-              </motion.div>
-
-              <motion.div variants={card} className={CARD}>
-                <SettingsPanel onResetProgress={resetProgress} onResetLeaderboard={resetLeaderboard} />
-              </motion.div>
-
-              <motion.div variants={card} className={CARD}>
-                <h4 className="font-semibold text-gray-100">Achievements</h4>
-                {(!progress.achievements || progress.achievements.length === 0) ? (
-                  <p className="text-sm text-gray-300 mt-2">No achievements yet. Complete missions and keep a streak going!</p>
-                ) : (
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-3">
-                    {progress.achievements.map(id => {
-                      const meta = achievementsCatalog.find(a => a.id === id);
-                      if (!meta) return null;
-                      return (
-                        <div key={id} className="flex items-center gap-2 p-3 rounded border bg-gray-800/40 border-gray-700">
-                          <div className="text-xl">{meta.icon}</div>
-                          <div className="text-sm font-medium text-gray-100">{meta.label}</div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </motion.div>
+            <div className={CARD_CLASS}>
+              <h3 className="font-semibold text-gray-200 mb-4">Leaderboard</h3>
+              <Leaderboard key={lbKey} currentUser={playerName} currentScore={progress.points} />
             </div>
 
-            <div className="col-span-12 lg:col-span-6 space-y-6">
-              <motion.div variants={card} className={CARD}>
-                <h3 className="font-semibold text-emerald-300">Badges & Progress</h3>
-                <div className="mt-3">
-                  {/* ProgressBar now scales to the next badge threshold so it never 'finishes' prematurely */}
-                  <ProgressBar value={progress.points} max={(() => {
-                    // find first badge threshold greater than current points
-                    const next = badgeRules.find(b => b.threshold > (progress.points || 0));
-                    if (next) return next.threshold;
-                    // if all badges passed, use 1.5x of current points as max so it keeps growing
-                    return Math.ceil((progress.points || 1) * 1.5);
-                  })()} />
-                  <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-3 md:gap-4">
-                    {badgeRules.map((b) => (
-                      <Badge key={b.id} label={b.label} unlocked={progress.points >= b.threshold || progress.badges.includes(b.id)} />
-                    ))}
-                  </div>
-                  <div className="mt-3 flex items-center gap-2 text-sm">
-                    <button onClick={resetProgress} className="text-xs text-rose-400 underline">Reset Progress</button>
-                    <span className="ml-auto text-gray-300">Games played: {progress.gamesPlayed}</span>
-                  </div>
-                </div>
-              </motion.div>
-
-              <motion.div variants={card} className={CARD}>
-                <h4 className="font-semibold text-gray-100">Daily Reward</h4>
-                <p className="text-sm text-gray-300 mt-2">Come back each day to claim a bonus. Your current streak adds a multiplier!</p>
-                <DailyReward progress={progress} onClaim={(pts) => addPoints(pts, { mission: 'daily', event: 'claim' })} />
-              </motion.div>
+            <div className={CARD_CLASS}>
+              <SettingsPanel onResetProgress={resetProgress} onResetLeaderboard={resetLeaderboard} />
             </div>
           </div>
-        </section>
-
-        {/* Duplicate section removed: content lives in the right sidebar now */}
+        </div>
 
         {showAchievement && (
-          <AchievementModal title={showAchievement.title} message={showAchievement.message} onClose={() => setShowAchievement(null)} />
+          <AchievementModal
+            title={showAchievement.title}
+            message={showAchievement.message}
+            onClose={() => setShowAchievement(null)}
+          />
         )}
-
-        <motion.section variants={card} className="rounded-xl bg-gray-800/60 p-4 shadow border border-gray-700 mt-6">
-          <h3 className="font-semibold text-emerald-300">About</h3>
-          <p className="text-sm text-gray-300 mt-1">
-            These games support the Namami Gange objective by helping children learn and practice small actions
-            that strengthen the river-people connect: proper waste sorting, tree planting, saving water and
-            responsible celebration near ghats.
-          </p>
-        </motion.section>
       </div>
-    </motion.div>
+    </div>
   );
 }
+
+function GameCard({ title, icon, color, onClick }) {
+  return (
+    <motion.button
+      whileHover={{ scale: 1.05, y: -5 }}
+      whileTap={{ scale: 0.95 }}
+      onClick={onClick}
+      className={`relative overflow-hidden rounded-2xl p-6 h-48 flex flex-col items-center justify-center gap-4 text-white shadow-lg group`}
+    >
+      <div className={`absolute inset-0 bg-gradient-to-br ${color} opacity-20 group-hover:opacity-30 transition-opacity`} />
+      <div className={`absolute inset-0 border-2 border-white/10 rounded-2xl`} />
+      <div className="text-5xl drop-shadow-md">{icon}</div>
+      <div className="font-bold text-lg tracking-wide">{title}</div>
+    </motion.button>
+  );
+}
+GameCard.propTypes = {
+  title: PropTypes.string,
+  icon: PropTypes.string,
+  color: PropTypes.string,
+  onClick: PropTypes.func
+};

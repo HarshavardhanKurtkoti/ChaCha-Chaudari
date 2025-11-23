@@ -29,13 +29,13 @@ const RouteContainer = () => {
   const ctx = useMemo(() => direction, [direction]);
 
   // Determine if the current route should use dark header/footer styling
-  const isGames = location.pathname.startsWith('/games') || location.pathname === '/chat' || location.pathname === '/account';
+  const isDark = location.pathname === '/' || location.pathname === '/home' || location.pathname.startsWith('/games') || location.pathname === '/chat' || location.pathname === '/account' || location.pathname === '/navigation' || location.pathname === '/riverine_ecology' || location.pathname === '/warRoom_museum';
 
   return (
     <RouteDirectionContext.Provider value={ctx}>
       <div className="min-h-screen flex flex-col">
-        {/* Pass dark-mode flag to NavBar/Footer when on /games or /chat */}
-        <NavBar isDark={isGames} />
+        {/* Pass dark-mode flag to NavBar/Footer for consistent dark theme */}
+        <NavBar isDark={isDark} />
         <main className="flex-1 overflow-x-hidden">
           <AnimatePresence mode="wait">
             <Routes location={location} key={location.pathname}>
@@ -50,7 +50,7 @@ const RouteContainer = () => {
             </Routes>
           </AnimatePresence>
         </main>
-        <Footer isDark={isGames} />
+        <Footer isDark={isDark} />
         <ScrollToTopButton />
       </div>
     </RouteDirectionContext.Provider>

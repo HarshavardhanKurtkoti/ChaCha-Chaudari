@@ -2,12 +2,14 @@ import React, { useContext, useEffect, useMemo, useState } from 'react';
 import { AuthUIContext } from 'context/AuthUIContext';
 import useSiteTimer from 'hooks/useSiteTimer';
 import SettingsPanel from 'components/SettingsPanel';
+import { useTranslation } from 'hooks/useTranslation';
 
 const STORAGE_KEY_GAME = 'gangaGameProgress:v2';
 const STORAGE_KEY_SITE_TIME = 'siteTimeSeconds';
 const STORAGE_KEY_CHAT_TALK_SEC = 'chatTalkSeconds';
 
 const Account = () => {
+  const { t } = useTranslation();
   const { openLoginModal } = useContext(AuthUIContext);
   const [game, setGame] = useState({ points: 0, badges: [], gamesPlayed: 0, achievements: [], streak: 0 });
   const [siteSeconds, setSiteSeconds] = useState(0);
@@ -119,12 +121,12 @@ const Account = () => {
             />
           ) : (
             <div className="w-12 h-12 rounded-full bg-gray-700 text-white flex items-center justify-center font-medium">
-              {(profile?.name || 'U').split(' ').map(n=>n[0]||'').slice(0,2).join('').toUpperCase()}
+              {(profile?.name || 'U').split(' ').map(n => n[0] || '').slice(0, 2).join('').toUpperCase()}
             </div>
           )}
           <div>
-            <h1 className="text-2xl font-semibold">{profile?.name ? `${profile.name}'s Account` : 'Your Account'}</h1>
-            <p className="text-sm text-gray-300">One place for progress, activity, and preferences.</p>
+            <h1 className="text-2xl font-semibold">{profile?.name ? `${profile.name}'s Account` : t('account.title')}</h1>
+            <p className="text-sm text-gray-300">{t('account.subtitle')}</p>
             {profile?.age != null && (
               <div className="text-sm text-gray-400 mt-1">Age: <span className="font-medium text-white">{profile.age}</span></div>
             )}
@@ -136,9 +138,9 @@ const Account = () => {
               window.dispatchEvent(new CustomEvent('user-logged-out'));
               setProfile(null);
               setLoggedIn(false);
-            }} className="ml-auto rounded-lg bg-rose-600 hover:bg-rose-500 px-4 py-2 text-sm font-medium">Logout</button>
+            }} className="ml-auto rounded-lg bg-rose-600 hover:bg-rose-500 px-4 py-2 text-sm font-medium">{t('nav.logout')}</button>
           ) : (
-            <button onClick={openLoginModal} className="ml-auto rounded-lg bg-blue-600 hover:bg-blue-500 px-4 py-2 text-sm font-medium">Login / Sign up</button>
+            <button onClick={openLoginModal} className="ml-auto rounded-lg bg-blue-600 hover:bg-blue-500 px-4 py-2 text-sm font-medium">{t('nav.login')}</button>
           )}
         </header>
 
@@ -147,7 +149,7 @@ const Account = () => {
           <div className="col-span-12 lg:col-span-8 space-y-6">
             {/* Game Progress */}
             <div className="rounded-2xl border border-gray-800 bg-gray-900/80 p-6">
-              <h2 className="text-lg font-medium text-emerald-300">Game Progress</h2>
+              <h2 className="text-lg font-medium text-emerald-300">{t('account.sections.progress')}</h2>
               <div className="mt-4">
                 <div className="h-3 w-full rounded-full bg-gray-800 border border-gray-700 overflow-hidden">
                   <div className="h-full bg-emerald-500" style={{ width: `${progressPct}%` }} />
@@ -165,19 +167,19 @@ const Account = () => {
 
             {/* Activity */}
             <div className="rounded-2xl border border-gray-800 bg-gray-900/80 p-6">
-              <h2 className="text-lg font-medium text-blue-300">Your Activity</h2>
+              <h2 className="text-lg font-medium text-blue-300">{t('account.sections.activity')}</h2>
               <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="rounded-xl border border-gray-800 bg-gray-950 p-4">
-                  <div className="text-sm text-gray-400">Time on site</div>
+                  <div className="text-sm text-gray-400">{t('account.sections.time')}</div>
                   <div className="text-xl font-semibold mt-1">{fmtHMS(siteSeconds)}</div>
                 </div>
                 <div className="rounded-xl border border-gray-800 bg-gray-950 p-4">
-                  <div className="text-sm text-gray-400">Chat talk time</div>
+                  <div className="text-sm text-gray-400">{t('account.sections.talk')}</div>
                   <div className="text-xl font-semibold mt-1">{fmtHMS(chatTalkSeconds)}</div>
                   <div className="text-xs text-gray-500 mt-1">Tracked when speaking in voice mode</div>
                 </div>
                 <div className="rounded-xl border border-gray-800 bg-gray-950 p-4">
-                  <div className="text-sm text-gray-400">Achievements</div>
+                  <div className="text-sm text-gray-400">{t('account.sections.achievements')}</div>
                   <div className="text-xl font-semibold mt-1">{game.achievements?.length || 0}</div>
                 </div>
               </div>
@@ -187,16 +189,16 @@ const Account = () => {
           {/* Right column: Quick actions / Preferences */}
           <div className="col-span-12 lg:col-span-4 space-y-6">
             <div className="rounded-2xl border border-gray-800 bg-gray-900/80 p-6">
-              <h3 className="text-base font-medium">Quick Actions</h3>
+              <h3 className="text-base font-medium">{t('account.sections.actions')}</h3>
               <ul className="mt-3 space-y-2 text-sm text-gray-300">
-                <li>• Manage voice/TTS settings (also available below)</li>
-                <li>• Reset game progress</li>
-                <li>• Privacy & security</li>
+                <li>• {t('account.sections.manage')}</li>
+                <li>• {t('account.sections.reset')}</li>
+                <li>• {t('account.sections.privacy')}</li>
               </ul>
               {loggedIn ? (
-                <button onClick={() => { localStorage.removeItem('userToken'); localStorage.removeItem('userProfile'); window.dispatchEvent(new CustomEvent('user-logged-out')); setProfile(null); setLoggedIn(false); }} className="mt-4 w-full rounded-lg bg-rose-600 hover:bg-rose-500 px-4 py-2 text-sm font-medium">Logout</button>
+                <button onClick={() => { localStorage.removeItem('userToken'); localStorage.removeItem('userProfile'); window.dispatchEvent(new CustomEvent('user-logged-out')); setProfile(null); setLoggedIn(false); }} className="mt-4 w-full rounded-lg bg-rose-600 hover:bg-rose-500 px-4 py-2 text-sm font-medium">{t('nav.logout')}</button>
               ) : (
-                <button onClick={openLoginModal} className="mt-4 w-full rounded-lg bg-blue-600 hover:bg-blue-500 px-4 py-2 text-sm font-medium">Open Login</button>
+                <button onClick={openLoginModal} className="mt-4 w-full rounded-lg bg-blue-600 hover:bg-blue-500 px-4 py-2 text-sm font-medium">{t('account.sections.login')}</button>
               )}
             </div>
 

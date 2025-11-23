@@ -2,8 +2,10 @@ import axios from 'axios';
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Skeleton } from '@mantine/core';
+import { useTranslation } from 'hooks/useTranslation';
 
 export default function Navigation() {
+    const { t } = useTranslation();
     const [latitude, setLatitude] = useState(null);
     const [longitude, setLongitude] = useState(null);
     const [distance, setDistance] = useState(null);
@@ -19,7 +21,7 @@ export default function Navigation() {
         } else {
             console.log('Geolocation not supported');
         }
-        }, []);
+    }, []);
 
     useEffect(() => {
         if (latitude && longitude) {
@@ -30,7 +32,7 @@ export default function Navigation() {
                 const apiBase = import.meta?.env?.DEV ? '/api' : 'http://localhost:1212';
                 const safeToken = (userToken && userToken !== 'null') ? userToken : null;
                 const headers = safeToken ? { Authorization: `Bearer ${safeToken}` } : {};
-                axios.post(`${apiBase}/updateLocation`, { lat: latitude, lon: longitude }, { headers }).catch(() => {});
+                axios.post(`${apiBase}/updateLocation`, { lat: latitude, lon: longitude }, { headers }).catch(() => { });
             } catch (e) { /* ignore */ }
             // Default map center to user location
             setMapCenter({ lat: latitude, lon: longitude });
@@ -80,28 +82,28 @@ export default function Navigation() {
     };
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-blue-50 via-green-50 to-yellow-100 pb-10">
-            <div className="max-w-3xl mx-auto px-4 mt-8">
+        <div className="min-h-screen bg-gray-900 text-white pb-10 pt-20">
+            <div className="max-w-4xl mx-auto px-4">
                 <motion.div
                     initial={{ opacity: 0, y: 16 }}
                     whileInView={{ opacity: 1, y: 0 }}
                     viewport={{ once: false, amount: 0.3 }}
                     transition={{ duration: 0.45 }}
-                    className="rounded-2xl shadow-lg bg-white/90 p-6"
+                    className="rounded-2xl shadow-2xl bg-gray-800/50 backdrop-blur-md border border-gray-700 p-6"
                 >
-                    <h1 className="text-2xl font-bold text-blue-700 mb-4">Navigation &amp; Location</h1>
-                    <div className="mb-4 text-gray-700">
+                    <h1 className="text-3xl font-bold text-blue-400 mb-6">{t('navigation.title')}</h1>
+                    <div className="mb-6 text-gray-300 bg-gray-700/30 p-4 rounded-lg border border-gray-600">
                         {latitude && longitude ? (
-                            <>
-                                <span className="font-semibold">Your Location:</span>{' '}
-                                <span>
-                                    Latitude: {latitude}, Longitude: {longitude}
+                            <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                                <span className="font-semibold text-blue-300">{t('navigation.yourLocation')}:</span>
+                                <span className="font-mono text-sm">
+                                    {t('navigation.lat')}: {latitude.toFixed(4)}, {t('navigation.lon')}: {longitude.toFixed(4)}
                                 </span>
-                            </>
+                            </div>
                         ) : (
                             <div className="space-y-2">
-                                <Skeleton height={16} width="60%" radius="sm" />
-                                <Skeleton height={16} width="40%" radius="sm" />
+                                <p className="text-sm text-gray-400">{t('navigation.loading')}</p>
+                                <Skeleton height={8} width="60%" radius="sm" color="#374151" />
                             </div>
                         )}
                     </div>
@@ -111,20 +113,20 @@ export default function Navigation() {
                         whileInView={{ opacity: 1, scale: 1 }}
                         viewport={{ once: false, amount: 0.3 }}
                         transition={{ duration: 0.35 }}
-                        className="mb-4 rounded-lg overflow-hidden shadow border border-blue-100"
+                        className="mb-6 rounded-xl overflow-hidden shadow-lg border border-gray-600 ring-1 ring-white/10"
                     >
                         {mapCenter ? (
                             <iframe
                                 title="Map"
                                 width="100%"
-                                height="350"
-                                style={{ border: 0 }}
+                                height="400"
+                                style={{ border: 0, filter: 'invert(90%) hue-rotate(180deg)' }} // Dark mode map hack
                                 loading="lazy"
                                 allowFullScreen
                                 src={`https://www.openstreetmap.org/export/embed.html?bbox=${mapCenter.lon - 0.01}%2C${mapCenter.lat - 0.01}%2C${mapCenter.lon + 0.01}%2C${mapCenter.lat + 0.01}&layer=mapnik&marker=${mapCenter.lat}%2C${mapCenter.lon}&marker=${GANGA_AARTI_LAT}%2C${GANGA_AARTI_LON}`}
                             ></iframe>
                         ) : (
-                            <Skeleton height={350} radius="md" />
+                            <Skeleton height={400} radius="md" color="#1f2937" />
                         )}
                     </motion.div>
                     <motion.div
@@ -132,27 +134,31 @@ export default function Navigation() {
                         whileInView={{ opacity: 1, y: 0 }}
                         viewport={{ once: false, amount: 0.3 }}
                         transition={{ duration: 0.35 }}
-                        className="mb-2 flex items-center gap-4"
+                        className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-gray-700/30 p-4 rounded-xl border border-gray-600"
                     >
-                        <span className="font-semibold">Distance from Ganga Aarti:</span>
-                                                {distance !== null ? (
-                                                    <span className="ml-2 text-blue-700 font-bold">{`${distance} km`}</span>
-                                                ) : (
-                                                    <Skeleton height={20} width={100} radius="sm" className="ml-2" />
-                                                )}
-                        <button
-                            className="px-4 py-2 bg-blue-600 text-white rounded-lg shadow hover:bg-blue-700 transition-colors"
-                            onClick={handleLocateAarti}
-                        >
-                            Locate Ganga Aarti
-                        </button>
-                        <button
-                            className="px-4 py-2 bg-green-600 text-white rounded-lg shadow hover:bg-green-700 transition-colors"
-                            onClick={handleLocateMe}
-                            disabled={!latitude || !longitude}
-                        >
-                            Locate Me
-                        </button>
+                        <div className="flex items-center gap-2">
+                            <span className="font-semibold text-gray-300">{t('navigation.distance')}:</span>
+                            {distance !== null ? (
+                                <span className="text-2xl font-bold text-emerald-400">{`${distance} km`}</span>
+                            ) : (
+                                <Skeleton height={20} width={60} radius="sm" color="#374151" />
+                            )}
+                        </div>
+                        <div className="flex gap-3">
+                            <button
+                                className="px-4 py-2 bg-blue-600 text-white rounded-lg shadow-lg hover:bg-blue-500 transition-all active:scale-95"
+                                onClick={handleLocateAarti}
+                            >
+                                {t('navigation.locateAarti')}
+                            </button>
+                            <button
+                                className="px-4 py-2 bg-emerald-600 text-white rounded-lg shadow-lg hover:bg-emerald-500 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                                onClick={handleLocateMe}
+                                disabled={!latitude || !longitude}
+                            >
+                                {t('navigation.locateMe')}
+                            </button>
+                        </div>
                     </motion.div>
                 </motion.div>
             </div>

@@ -14,9 +14,11 @@ const defaultSettings = {
   ttsLang: 'en-IN',
   // Animation quality for particle effects on Chat page: 'high' | 'low' | 'off'
   animationQuality: 'high',
+  // App Language
+  language: 'en',
 };
 
-const SettingsContext = createContext({ settings: defaultSettings, setSetting: () => {} });
+const SettingsContext = createContext({ settings: defaultSettings, setSetting: () => { } });
 
 export const SettingsProvider = ({ children }) => {
   const [settings, setSettings] = useState(defaultSettings);

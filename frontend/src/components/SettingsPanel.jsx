@@ -1,6 +1,7 @@
 import PropTypes from 'prop-types';
 import { useEffect, useMemo, useState } from 'react';
 import { useSettings } from 'context/SettingsContext';
+import { LANGUAGES } from '../translations';
 
 const SettingsPanel = ({ onResetProgress, onResetLeaderboard }) => {
   const { settings, setSetting } = useSettings();
@@ -31,7 +32,7 @@ const SettingsPanel = ({ onResetProgress, onResetLeaderboard }) => {
         if (items.length) {
           const map = new Map();
           for (const it of items) { if (!map.has(it.id)) map.set(it.id, it); }
-          const uniq = Array.from(map.values()).sort((a,b) => a.label.localeCompare(b.label));
+          const uniq = Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label));
           setVoiceOptions(uniq);
           if (!uniq.some(u => u.id === (settings?.ttsVoice))) {
             // Prefer the Kušal model if available, else Hindi (rohan), else first available
@@ -115,8 +116,8 @@ const SettingsPanel = ({ onResetProgress, onResetLeaderboard }) => {
         window.alert('Piper TTS returned empty audio. Check the TTS proxy logs.');
         return; // Piper only
       }
-  // Create an audio element and append it so autoplay restrictions can be bypassed by user
-  const url = URL.createObjectURL(blob);
+      // Create an audio element and append it so autoplay restrictions can be bypassed by user
+      const url = URL.createObjectURL(blob);
       const audio = document.createElement('audio');
       audio.src = url;
       audio.autoplay = true;
@@ -140,6 +141,20 @@ const SettingsPanel = ({ onResetProgress, onResetLeaderboard }) => {
   return (
     <div className="rounded-xl bg-gray-800/60 p-4 shadow-lg border border-gray-700">
       <h4 className="font-semibold text-gray-100">Settings</h4>
+
+      <div className="mt-3 flex items-center justify-between gap-3">
+        <label className="text-sm text-gray-200">Language</label>
+        <select
+          className="px-2 py-1 rounded bg-gray-700 text-gray-100 border border-gray-600 text-sm"
+          value={settings?.language || 'en'}
+          onChange={(e) => setSetting('language', e.target.value)}
+        >
+          {LANGUAGES.map(l => (
+            <option key={l.code} value={l.code}>{l.label}</option>
+          ))}
+        </select>
+      </div>
+
       <div className="mt-3 flex items-center justify-between">
         <label className="text-sm text-gray-200">Sound Effects</label>
         <button
@@ -165,7 +180,7 @@ const SettingsPanel = ({ onResetProgress, onResetLeaderboard }) => {
             <option key={v.id} value={v.id}>{v.label}</option>
           ))}
         </select>
-  <div className="text-xs text-gray-400 ml-2">Using: {currentVoice} · {effectiveLang}</div>
+        <div className="text-xs text-gray-400 ml-2">Using: {currentVoice} · {effectiveLang}</div>
         {loadingVoices && (
           <span className="text-xs text-gray-400">Loading…</span>
         )}
