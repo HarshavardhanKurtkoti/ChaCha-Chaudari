@@ -59,6 +59,7 @@ if "soundfile" not in sys.modules:
     sys.modules["soundfile"] = _sf_mod
 
 import threading
+import re
 
 # Load environment variables early (used by TTS config too)
 env_vars = dotenv_values('.env')
@@ -216,6 +217,40 @@ os.makedirs(DATA_DIR, exist_ok=True)
 # Helper: generate unique filename
 def unique_filename(prefix: str, ext: str):
     return os.path.join(DATA_DIR, f"{prefix}_{uuid.uuid4().hex}.{ext}")
+
+
+def sanitize_text_for_tts(text: str) -> str:
+    """Lightweight cleaning of LLM output for TTS:
+    - remove code fences and inline code
+    - strip common markdown emphasis (*, **, _, __)
+    - remove leftover backticks and stray asterisks
+    - collapse excessive whitespace
+    """
+    if not text:
+        return text
+    try:
+        s = str(text)
+        # Remove fenced code blocks ```...```
+        s = re.sub(r'```[\s\S]*?```', ' ', s)
+        # Replace inline code `...` with its content
+        s = re.sub(r'`([^`]*)`', r"\1", s)
+        # Remove bold/italic markers
+        s = re.sub(r'\*\*(.*?)\*\*', r"\1", s)
+        s = re.sub(r'__(.*?)__', r"\1", s)
+        s = re.sub(r'\*(.*?)\*', r"\1", s)
+        s = re.sub(r'_(.*?)_', r"\1", s)
+        # Remove any remaining stray asterisks or backticks
+        s = s.replace('`', '')
+        s = s.replace('*', '')
+        # Normalize newlines and spaces
+        s = re.sub(r"\r\n|\r", "\n", s)
+        s = re.sub(r"\n{3,}", "\n\n", s)
+        s = re.sub(r"[ \t]{2,}", ' ', s)
+        # Trim
+        s = s.strip()
+        return s
+    except Exception:
+        return text
 
 def generate_tts_file(text: str, voice_id: str | None = None) -> str:
     """Generate TTS using selected engine. Returns path to a WAV file."""
@@ -1500,7 +1535,9 @@ def create_app():
                 if WELCOME_AUTOTTS:
                     try:
                         out_path = unique_filename('speech', 'wav')
-                        wav_path = tts_local_basic(result, out_path=out_path, voice=data.get('voice') or None) if _EDGE_LOCAL_AVAILABLE else generate_tts_file(result)
+                        # Sanitize text for TTS so spoken audio doesn't include markdown
+                        tts_text = sanitize_text_for_tts(result)
+                        wav_path = tts_local_basic(tts_text, out_path=out_path, voice=data.get('voice') or None) if _EDGE_LOCAL_AVAILABLE else generate_tts_file(tts_text)
                         filename = os.path.basename(wav_path)
                         audio_url = f"/generated_audio/{filename}"
                     except Exception:
@@ -1969,7 +2006,9 @@ def create_app():
                     voice_id = data.get('voice') or data.get('ttsVoice') or None
                     # Prefer offline local-basic TTS for assistant reply
                     out_path = unique_filename('speech', 'wav')
-                    wav_path = tts_local_basic(result, out_path=out_path, voice=voice_id)
+                    # Sanitize model output for TTS so spoken audio doesn't include markdown markers
+                    tts_text = sanitize_text_for_tts(result)
+                    wav_path = tts_local_basic(tts_text, out_path=out_path, voice=voice_id)
                     filename = os.path.basename(wav_path)
                     audio_url = f"/generated_audio/{filename}"
                 except Exception as tte:

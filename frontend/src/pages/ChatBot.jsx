@@ -215,11 +215,18 @@ const ChatBot = ({ setIsSpeaking }) => {
 			const forcedBase = 'http://127.0.0.1:6001';
 			const apiBase = envBase || forcedBase;
 			console.debug('playTTS base resolved', { apiBase, origin: window.location.origin });
-			// Pick Piper voice based on current language selection
-			const currentLang = (typeof lang === 'string' && lang) || (settings?.ttsLang) || 'en-IN';
-			const isHindi = String(currentLang).toLowerCase().startsWith('hi');
-			const voiceToSend = isHindi ? 'hi_IN-rohan-medium' : 'en_US-kusal-medium';
-			const langToSend = isHindi ? 'hi-IN' : 'en-US';
+						// Determine the voice to send:
+						// 1) Prefer explicit user selection stored in settings (use ref to avoid stale closures)
+						// 2) Fall back to settings.ttsVoice
+						// 3) Finally fall back to language heuristic (Hindi vs English)
+						const selectedVoice = (ttsVoiceRef && ttsVoiceRef.current) || settings?.ttsVoice;
+						// Compute a sensible language hint
+						const currentLang = (typeof lang === 'string' && lang) || settings?.ttsLang || 'en-IN';
+						const isHindi = String(currentLang).toLowerCase().startsWith('hi');
+						const voiceToSend = (selectedVoice && String(selectedVoice).length)
+							? selectedVoice
+							: (isHindi ? 'hi_IN-rohan-medium' : 'en_US-kusal-medium');
+						const langToSend = settings?.ttsLang || (isHindi ? 'hi-IN' : 'en-US');
 			console.debug('playTTS sending voice/lang=', voiceToSend, langToSend);
 			const postUrl = `${String(apiBase).replace(/\/$/, '')}/tts`;
 			console.debug('playTTS POST', postUrl);
@@ -791,7 +798,12 @@ const ChatBot = ({ setIsSpeaking }) => {
 			setContinueHint(false);
 			// Ask the model to continue; append to last assistant bubble
 			setState('waiting');
-			await streamResponse({ prompt: 'continue' }, { appendToLast: continueAppend });
+			// Prompt-engineered continuation: ask the model to finish the previous
+			// assistant reply in ~100 words. Request it to resume naturally and
+			// avoid repeating the already-sent text so the appended content is
+			// concise and completes the thought.
+			const engineeredPrompt = `The previous assistant response was cut off. Please continue and conclude that response in approximately 100 words. Resume naturally from where it stopped; do not repeat the earlier text. Keep the same tone, be concise, and produce a clear, self-contained ending.`;
+			await streamResponse({ prompt: engineeredPrompt, lang }, { appendToLast: continueAppend });
 		} catch (e) { console.error('continueAnswer failed', e); }
 	};
 
