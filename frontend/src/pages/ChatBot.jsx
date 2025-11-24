@@ -42,12 +42,12 @@ const ChatBot = ({ setIsSpeaking }) => {
 				const userInitiated = !!e.detail.userInitiated;
 				if (!userInitiated) {
 					// If not user-initiated, do not add a user message or call backend.
-					return;
-				}
-				// User initiated: send the greeting prompt to backend as before
-				addMessage('user', 'hello');
-				setState('waiting');
-				getResponse({ prompt: 'hello', lang }, '/llama-chat').then(resp => {
+							return;
+						}
+						// User initiated: send the greeting prompt to backend as before
+						addMessage('user', 'hello');
+						setState('waiting');
+						getResponse({ prompt: 'hello', lang }, '/llama-chat').then(resp => {
 					setState('idle');
 					if (resp && resp.data && resp.data.result) {
 						addMessage('assistant', resp.data.result);
@@ -198,13 +198,23 @@ const ChatBot = ({ setIsSpeaking }) => {
 	const audioContextRef = useRef(null);
 	const analyserRef = useRef(null);
 	const micStreamRef = useRef(null);
+	const [pendingTTS, setPendingTTS] = useState(null); // { audioUrl, text }
+	// Clean up stale object URLs when pendingTTS changes
+	useEffect(() => {
+		return () => {
+			try {
+				if (pendingTTS?.audioUrl) URL.revokeObjectURL(pendingTTS.audioUrl);
+			} catch { /* noop */ }
+		};
+	}, [pendingTTS]);
 	// Play TTS audio for assistant responses
 	async function playTTS(text) {
 		try {
-			// Force TTS to the standalone proxy per user request
+			// Prefer env-configured TTS base, fallback to local proxy
+			const envBase = (import.meta?.env?.VITE_TTS_BASE_URL || '').trim();
 			const forcedBase = 'http://127.0.0.1:6001';
-			const apiBase = forcedBase;
-			console.debug('playTTS base resolved (forced proxy)', { apiBase, origin: window.location.origin });
+			const apiBase = envBase || forcedBase;
+			console.debug('playTTS base resolved', { apiBase, origin: window.location.origin });
 			// Pick Piper voice based on current language selection
 			const currentLang = (typeof lang === 'string' && lang) || (settings?.ttsLang) || 'en-IN';
 			const isHindi = String(currentLang).toLowerCase().startsWith('hi');
@@ -246,8 +256,11 @@ const ChatBot = ({ setIsSpeaking }) => {
 			try {
 				await audio.play();
 				console.debug('TTS playback started');
+				setPendingTTS(null);
 			} catch (playErr) {
 				console.warn('Browser blocked autoplay or playback failed; user gesture may be required', playErr);
+				// Store pending so UI can show manual play button
+				setPendingTTS({ audioUrl, text });
 			}
 		} catch (err) {
 			console.error('TTS error:', err);
@@ -862,6 +875,30 @@ const ChatBot = ({ setIsSpeaking }) => {
 											</div>
 										))
 									)}
+									{pendingTTS && (
+												<div className='flex justify-start w-full'>
+													<div className='rounded-2xl px-4 py-2 shadow-sm text-sm bg-blue-700 text-white mb-3 flex items-center gap-3'>
+														<span>Audio ready</span>
+														<button
+															onClick={() => {
+																try {
+																	const a = new Audio(pendingTTS.audioUrl);
+																	a.onended = () => { try { URL.revokeObjectURL(pendingTTS.audioUrl); } catch { } };
+																	a.play().then(() => setPendingTTS(null)).catch(() => { /* ignore */ });
+																} catch { /* ignore */ }
+															}}
+															className='px-2 py-1 bg-black/30 hover:bg-black/50 rounded'
+														>
+															▶ Play voice
+														</button>
+														<button className='text-xs underline opacity-80 hover:opacity-100'
+															onClick={() => { setPendingTTS(null); }}
+														>
+															Dismiss
+														</button>
+													</div>
+												</div>
+												)}
 									{/* Typing indicator bubble when assistant is thinking */}
 									{(state === 'waiting' || state === 'thinking') && (
 										<div className='flex justify-start w-full'>
