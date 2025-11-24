@@ -220,37 +220,59 @@ def unique_filename(prefix: str, ext: str):
 
 
 def sanitize_text_for_tts(text: str) -> str:
-    """Lightweight cleaning of LLM output for TTS:
-    - remove code fences and inline code
-    - strip common markdown emphasis (*, **, _, __)
-    - remove leftover backticks and stray asterisks
-    - collapse excessive whitespace
+    """Minimal TTS sanitizer: remove literal double-asterisk markers used for bold (**).
+    This keeps all other formatting intact per request (do not change anything else).
     """
     if not text:
         return text
     try:
         s = str(text)
-        # Remove fenced code blocks ```...```
-        s = re.sub(r'```[\s\S]*?```', ' ', s)
-        # Replace inline code `...` with its content
-        s = re.sub(r'`([^`]*)`', r"\1", s)
-        # Remove bold/italic markers
-        s = re.sub(r'\*\*(.*?)\*\*', r"\1", s)
-        s = re.sub(r'__(.*?)__', r"\1", s)
-        s = re.sub(r'\*(.*?)\*', r"\1", s)
-        s = re.sub(r'_(.*?)_', r"\1", s)
-        # Remove any remaining stray asterisks or backticks
-        s = s.replace('`', '')
-        s = s.replace('*', '')
-        # Normalize newlines and spaces
-        s = re.sub(r"\r\n|\r", "\n", s)
-        s = re.sub(r"\n{3,}", "\n\n", s)
-        s = re.sub(r"[ \t]{2,}", ' ', s)
-        # Trim
-        s = s.strip()
-        return s
+        # Remove literal double asterisks used for bold markers
+        s = s.replace('**', '')
+        # Also remove spaced variants like '* *' that may be produced accidentally
+        s = s.replace('* *', ' ')
+        # Collapse multiple spaces
+        s = re.sub(r'[ \t]{2,}', ' ', s)
+        return s.strip()
     except Exception:
         return text
+
+
+def _strip_leading_duplicate(result: str, conversation_block: str) -> str:
+    """If the model output starts by repeating the previous assistant turn or
+    the welcome message, strip the duplicated leading text to avoid awkward
+    concatenated replies in the client."""
+    try:
+        if not result:
+            return result
+        s = str(result)
+        # If the model begins with configured welcome message, remove that prefix
+        if WELCOME_MESSAGE and s.startswith(WELCOME_MESSAGE):
+            return s[len(WELCOME_MESSAGE):].lstrip() or s
+        # Try to find the last assistant turn in the conversation_block
+        last_assistant = None
+        if conversation_block:
+            for line in conversation_block.splitlines()[::-1]:
+                if line.strip().lower().startswith('assistant:'):
+                    # extract after 'Assistant:'
+                    last_assistant = line.split(':', 1)[1].strip()
+                    break
+        if last_assistant:
+            # If the result begins by repeating the last assistant content, remove the overlap
+            la = last_assistant.strip()
+            if la and s.startswith(la):
+                return s[len(la):].lstrip() or s
+            # Sometimes the model echoes a shorter prefix (first sentence) — try sentence-level match
+            try:
+                import re as _re
+                first_sentence = _re.split(r'[\.\!\?]\s+', la, maxsplit=1)[0]
+                if first_sentence and s.startswith(first_sentence):
+                    return s[len(first_sentence):].lstrip() or s
+            except Exception:
+                pass
+        return s
+    except Exception:
+        return result
 
 def generate_tts_file(text: str, voice_id: str | None = None) -> str:
     """Generate TTS using selected engine. Returns path to a WAV file."""
@@ -1613,22 +1635,13 @@ def create_app():
                 persona_lines.append(f"The user's name is {user_name}.")
             # Natural, human-style guidance by age
             persona_lines.append("Speak as ChaCha in first person (I/me) with a warm, friendly tone—natural, concise, and human.")
-            # Decide kid story mode only when appropriate, not always
-            use_kid_story = False
+            # For younger users, always prefer story-style simplification
             if (age_group == 'kid'):
-                # Heuristics: greeting story, conceptual questions (why/how/what), or weak RAG
-                lt_prompt = (prompt or '').strip().lower()
-                if ('kid_greeting_story' in locals() and kid_greeting_story) or any(
-                    kw in lt_prompt for kw in ('why', 'how', 'what is', 'tell me', 'story')
-                ) or not rag_reliable:
-                    use_kid_story = True
-                if use_kid_story:
-                    persona_lines.append("Use simple, positive language and create a short story example appropriate for kids.")
-                    persona_lines.append("Structure: briefly explain the idea, then tell a small story (setting → action → outcome), and end with one friendly question.")
-                    persona_lines.append("Keep it ~80–140 words, vivid but simple; prefer familiar Indian names/places and Ganga context when it fits naturally.")
-                    persona_lines.append("Avoid headings and lists; write in 3–5 short paragraphs so it’s easy to follow.")
-                else:
-                    persona_lines.append("Use simple, positive language; explain in 1–2 short paragraphs with one concrete example. Avoid lists unless asked.")
+                # Force storified, kid-friendly responses for users classified as 'kid'
+                persona_lines.append("Use simple, positive language and create a short story example appropriate for kids.")
+                persona_lines.append("Structure: briefly explain the idea, then tell a small story (setting → action → outcome), and end with one friendly question.")
+                persona_lines.append("Keep it ~80–140 words, vivid but simple; prefer familiar Indian names/places and Ganga context when it fits naturally.")
+                persona_lines.append("Avoid headings and lists; write in 3–5 short paragraphs so it’s easy to follow.")
             elif age_group == 'teen':
                 persona_lines.append("Keep it concise, friendly, and practical — one or two short paragraphs.")
             else:
@@ -1885,6 +1898,13 @@ def create_app():
                 input_len = int(inputs["input_ids"].shape[1])
                 gen_tokens = output[0][input_len:]
                 result = tokenizer.decode(gen_tokens, skip_special_tokens=True).strip()
+                # Defensive cleanup: if the model output repeats the last assistant
+                # turn or the configured welcome message at the start, strip that
+                # duplicated prefix to avoid concatenated replies on the client.
+                try:
+                    result = _strip_leading_duplicate(result, conversation_block)
+                except Exception:
+                    pass
                 # Post-process: strip any leaked meta labels or headings
                 try:
                     import re as _re
