@@ -1,11 +1,12 @@
 import { Fragment, useContext, useEffect, useRef, useState } from 'react';
 import { useSettings } from 'context/SettingsContext';
+import { useTranslation } from 'hooks/useTranslation';
 import '../styles/hide-scrollbar.css';
 import './ChatBot.css';
 import { Welcome } from 'components';
 import { BsMic } from 'react-icons/bs';
 import { HiOutlineSpeakerWave, HiOutlineSpeakerXMark } from 'react-icons/hi2';
-import { samplePhrases } from 'data';
+
 import { useMessageContext } from 'context/MessageProvider';
 import { BotStateContext } from 'context/BotState';
 import SelectLang from 'components/SelectLang';
@@ -15,10 +16,17 @@ import PropTypes from 'prop-types';
 import { ChachaCanvas } from './Bot';
 
 const ChatBot = ({ setIsSpeaking }) => {
+	const { t } = useTranslation();
 	const { settings } = useSettings();
+
+	const samplePhrases = [
+		t('chat.sample1'),
+		t('chat.sample2'),
+		t('chat.sample3')
+	];
 	// audio=true: voice mode (auto TTS); audio=false: text-only
 	const [audio, setAudio] = useState(true);
-    const particleCanvasRef = useRef(null);
+	const particleCanvasRef = useRef(null);
 	// Keep a ref to the latest ttsVoice so event handlers created on mount use
 	// the current selection (avoids stale closures).
 	const ttsVoiceRef = useRef(settings?.ttsVoice);
@@ -29,33 +37,33 @@ const ChatBot = ({ setIsSpeaking }) => {
 	// addMessage/getResponse/setIsSpeaking in deps to avoid re-wiring handlers repeatedly.
 	useEffect(() => {
 		const handler = (e) => {
-				if (e.detail && e.detail.message == 'hello') {
-					// Do not force-enable audio here; respect the user's Voice on/off toggle.
-					const userInitiated = !!e.detail.userInitiated;
-					if (!userInitiated) {
-						// If not user-initiated, do not add a user message or call backend.
-						return;
-					}
-					// User initiated: send the greeting prompt to backend as before
-					addMessage('user', 'hello');
-					setState('waiting');
-					getResponse({ prompt: 'hello', lang }, '/llama-chat').then(resp => {
-						setState('idle');
-						if (resp && resp.data && resp.data.result) {
-							addMessage('assistant', resp.data.result);
-							if (audio) {
-								if (setIsSpeaking) setIsSpeaking(true);
-								playTTS(resp.data.result);
-							} else {
-								if (setIsSpeaking) setIsSpeaking(false);
-							}
-						}
-					});
+			if (e.detail && e.detail.message == 'hello') {
+				// Do not force-enable audio here; respect the user's Voice on/off toggle.
+				const userInitiated = !!e.detail.userInitiated;
+				if (!userInitiated) {
+					// If not user-initiated, do not add a user message or call backend.
+					return;
 				}
-			};
+				// User initiated: send the greeting prompt to backend as before
+				addMessage('user', 'hello');
+				setState('waiting');
+				getResponse({ prompt: 'hello', lang }, '/llama-chat').then(resp => {
+					setState('idle');
+					if (resp && resp.data && resp.data.result) {
+						addMessage('assistant', resp.data.result);
+						if (audio) {
+							if (setIsSpeaking) setIsSpeaking(true);
+							playTTS(resp.data.result);
+						} else {
+							if (setIsSpeaking) setIsSpeaking(false);
+						}
+					}
+				});
+			}
+		};
 		window.addEventListener('activate-chatbot-voice', handler);
 		return () => window.removeEventListener('activate-chatbot-voice', handler);
-	// eslint-disable-next-line react-hooks/exhaustive-deps
+		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [audio]);
 
 	// Canvas-based particle system (faster than DOM nodes). Respects settings.animationQuality
@@ -71,9 +79,9 @@ const ChatBot = ({ setIsSpeaking }) => {
 		let mouse = { x: -9999, y: -9999, lastMove: 0 };
 
 		const quality = (settings && settings.animationQuality) ? settings.animationQuality : 'high';
-	// Reduce default particle count to make the scene lighter by default.
-	// 'low' remains low, 'off' keeps 0, and default/high uses a smaller count.
-	const baseCount = quality === 'low' ? 20 : (quality === 'off' ? 0 : 60);
+		// Reduce default particle count to make the scene lighter by default.
+		// 'low' remains low, 'off' keeps 0, and default/high uses a smaller count.
+		const baseCount = quality === 'low' ? 20 : (quality === 'off' ? 0 : 60);
 
 		function resize() {
 			width = canvas.clientWidth || canvas.offsetWidth || window.innerWidth;
@@ -106,10 +114,10 @@ const ChatBot = ({ setIsSpeaking }) => {
 		}
 
 		function draw() {
-			ctx.clearRect(0,0,width,height);
+			ctx.clearRect(0, 0, width, height);
 			// subtle fade overlay to create trailing
 			ctx.fillStyle = 'rgba(0,0,0,0)';
-			ctx.fillRect(0,0,width,height);
+			ctx.fillRect(0, 0, width, height);
 
 			for (let i = 0; i < particles.length; i++) {
 				const p = particles[i];
@@ -145,12 +153,12 @@ const ChatBot = ({ setIsSpeaking }) => {
 			mouse.lastMove = Date.now();
 			// burst small number of particles at mouse for interactivity
 			const burst = (quality === 'low') ? 1 : 2;
-			for (let i=0;i<burst;i++) {
+			for (let i = 0; i < burst; i++) {
 				const p = randomParticle();
 				p.x = (e.clientX - rect.left);
 				p.y = (e.clientY - rect.top);
-				p.vx = (Math.random()-0.5)*1.4;
-				p.vy = - (0.6 + Math.random()*1.6);
+				p.vx = (Math.random() - 0.5) * 1.4;
+				p.vy = - (0.6 + Math.random() * 1.6);
 				p.life = 0;
 				particles.push(p);
 			}
@@ -158,7 +166,7 @@ const ChatBot = ({ setIsSpeaking }) => {
 			const spheres = document.querySelectorAll('.chat-gradient-background .gradient-sphere');
 			const moveX = (e.clientX / window.innerWidth - 0.5) * 8; // px
 			const moveY = (e.clientY / window.innerHeight - 0.5) * 8;
-			spheres.forEach(s => { try { s.style.transform = `translate(${moveX}px, ${moveY}px)`; } catch {} });
+			spheres.forEach(s => { try { s.style.transform = `translate(${moveX}px, ${moveY}px)`; } catch { } });
 		}
 
 		function start() {
@@ -174,7 +182,7 @@ const ChatBot = ({ setIsSpeaking }) => {
 			window.removeEventListener('mousemove', onMove);
 			if (animationId) cancelAnimationFrame(animationId);
 			animationId = null;
-			try { ctx.clearRect(0,0,canvas.width,canvas.height); } catch {}
+			try { ctx.clearRect(0, 0, canvas.width, canvas.height); } catch { }
 		}
 
 		start();
@@ -183,7 +191,7 @@ const ChatBot = ({ setIsSpeaking }) => {
 			stop();
 			particles = [];
 		};
-	// Recreate when the animationQuality setting changes
+		// Recreate when the animationQuality setting changes
 	}, [settings?.animationQuality]);
 	// Mic loudness state
 	const [micLevel, setMicLevel] = useState(0);
@@ -234,7 +242,7 @@ const ChatBot = ({ setIsSpeaking }) => {
 			const blob = await response.blob();
 			const audioUrl = URL.createObjectURL(blob);
 			const audio = new Audio(audioUrl);
-			audio.onended = () => { try { URL.revokeObjectURL(audioUrl); } catch {} };
+			audio.onended = () => { try { URL.revokeObjectURL(audioUrl); } catch { } };
 			try {
 				await audio.play();
 				console.debug('TTS playback started');
@@ -318,26 +326,26 @@ const ChatBot = ({ setIsSpeaking }) => {
 	}, [chatHistory, state]);
 
 	const scrollToBottom = (opts = { smooth: false }) => {
-	 	try {
-	 		if (containerRef.current) {
-	 			// Prefer setting scrollTop directly for more predictable behavior
-	 			if (opts.smooth) {
-	 				containerRef.current.scrollTo({ top: containerRef.current.scrollHeight, behavior: 'smooth' });
-	 			} else {
-	 				containerRef.current.scrollTop = containerRef.current.scrollHeight;
-	 			}
-	 			return;
-	 		}
-	 		if (bottomRef.current) {
-	 			bottomRef.current.scrollIntoView({ behavior: opts.smooth ? 'smooth' : 'auto' });
-	 		}
-	 	} catch (e) { void e; }
+		try {
+			if (containerRef.current) {
+				// Prefer setting scrollTop directly for more predictable behavior
+				if (opts.smooth) {
+					containerRef.current.scrollTo({ top: containerRef.current.scrollHeight, behavior: 'smooth' });
+				} else {
+					containerRef.current.scrollTop = containerRef.current.scrollHeight;
+				}
+				return;
+			}
+			if (bottomRef.current) {
+				bottomRef.current.scrollIntoView({ behavior: opts.smooth ? 'smooth' : 'auto' });
+			}
+		} catch (e) { void e; }
 	};
 
 	useEffect(() => {
 		setBotState(state);
 		console.log(botState);
-	// eslint-disable-next-line react-hooks/exhaustive-deps
+		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [state]);
 
 	const focusInput = () => {
@@ -374,52 +382,52 @@ const ChatBot = ({ setIsSpeaking }) => {
 	// const endpoint = 'http://localhost:5000/llama-chat';
 
 	const getResponse = async (userdata, endpoint) => {
+		try {
+			let ageGroup = null;
+			let name = undefined;
 			try {
-				let ageGroup = null;
-				let name = undefined;
-				try {
-					const p = JSON.parse(localStorage.getItem('userProfile') || 'null');
-					const rawAge = p?.age;
-					name = p?.name;
-					// Accept numbers or strings like "9" in stored profile
-					let age = null;
-					if (typeof rawAge === 'number') age = rawAge;
-					else if (typeof rawAge === 'string' && /^\d+$/.test(rawAge.trim())) age = parseInt(rawAge.trim(), 10);
-					if (typeof age === 'number' && !Number.isNaN(age)) {
-						ageGroup = age <= 10 ? 'kid' : age < 16 ? 'teen' : 'adult';
-					}
-				} catch (e) { console.debug('userProfile parse error', e); }
-				const userToken = localStorage.getItem('userToken');
-				const payload = { ...userdata, ageGroup, name };
-				// Provide recent conversation history for context (last 12 messages)
-				try {
-					payload.history = (chatHistory || []).slice(-12);
-				} catch {}
-				// Previously we forced a concise, "fast"/fallback mode in voice. That produced
-				// gist-like answers (e.g., "Here's the gist…"). Now we default to full answers
-				// unless explicitly requested elsewhere. Leave speed undefined to let the
-				// server choose its normal behavior.
-				try {
-					void audio; // no-op, we simply avoid forcing speed here
-				} catch {}
-				// Ensure we only send a sane Authorization header (avoid sending 'null' or empty)
-				const safeToken = (userToken && userToken !== 'null') ? userToken : null;
-				const headers = safeToken ? { 'Authorization': `Bearer ${safeToken}` } : {};
-
-				// Debug: log baseURL, headers and payload to help diagnose preflight/latency
-				try {
-					console.debug('llama-chat request', { baseURL: api.defaults.baseURL, endpoint, headers, payload });
-				} catch { /* ignore */ }
-
-				const t0 = performance.now();
-				const response = await api.post(endpoint, payload, { headers });
-				const t1 = performance.now();
-				const serverMs = (response?.data?.latency_ms ?? 0);
-				const clientMs = Math.round(t1 - t0);
-				console.log(`llama-chat: client ${clientMs}ms, server ${serverMs}ms, retrieved ${response?.data?.retrieved_count}`);
-				if (clientMs > 3000 || serverMs > 3000) {
-					console.warn('High latency detected for /llama-chat', { clientMs, serverMs, payloadPreview: { prompt: payload.prompt, ageGroup: payload.ageGroup } });
+				const p = JSON.parse(localStorage.getItem('userProfile') || 'null');
+				const rawAge = p?.age;
+				name = p?.name;
+				// Accept numbers or strings like "9" in stored profile
+				let age = null;
+				if (typeof rawAge === 'number') age = rawAge;
+				else if (typeof rawAge === 'string' && /^\d+$/.test(rawAge.trim())) age = parseInt(rawAge.trim(), 10);
+				if (typeof age === 'number' && !Number.isNaN(age)) {
+					ageGroup = age <= 10 ? 'kid' : age < 16 ? 'teen' : 'adult';
 				}
+			} catch (e) { console.debug('userProfile parse error', e); }
+			const userToken = localStorage.getItem('userToken');
+			const payload = { ...userdata, ageGroup, name };
+			// Provide recent conversation history for context (last 12 messages)
+			try {
+				payload.history = (chatHistory || []).slice(-12);
+			} catch { }
+			// Previously we forced a concise, "fast"/fallback mode in voice. That produced
+			// gist-like answers (e.g., "Here's the gist…"). Now we default to full answers
+			// unless explicitly requested elsewhere. Leave speed undefined to let the
+			// server choose its normal behavior.
+			try {
+				void audio; // no-op, we simply avoid forcing speed here
+			} catch { }
+			// Ensure we only send a sane Authorization header (avoid sending 'null' or empty)
+			const safeToken = (userToken && userToken !== 'null') ? userToken : null;
+			const headers = safeToken ? { 'Authorization': `Bearer ${safeToken}` } : {};
+
+			// Debug: log baseURL, headers and payload to help diagnose preflight/latency
+			try {
+				console.debug('llama-chat request', { baseURL: api.defaults.baseURL, endpoint, headers, payload });
+			} catch { /* ignore */ }
+
+			const t0 = performance.now();
+			const response = await api.post(endpoint, payload, { headers });
+			const t1 = performance.now();
+			const serverMs = (response?.data?.latency_ms ?? 0);
+			const clientMs = Math.round(t1 - t0);
+			console.log(`llama-chat: client ${clientMs}ms, server ${serverMs}ms, retrieved ${response?.data?.retrieved_count}`);
+			if (clientMs > 3000 || serverMs > 3000) {
+				console.warn('High latency detected for /llama-chat', { clientMs, serverMs, payloadPreview: { prompt: payload.prompt, ageGroup: payload.ageGroup } });
+			}
 			// console.log('response', response);
 			setState('thinking');
 			return response;
@@ -439,16 +447,16 @@ const ChatBot = ({ setIsSpeaking }) => {
 				let age = null;
 				if (typeof rawAge === 'number') age = rawAge; else if (typeof rawAge === 'string' && /^\d+$/.test(rawAge.trim())) age = parseInt(rawAge.trim(), 10);
 				if (typeof age === 'number' && !Number.isNaN(age)) ageGroup = age <= 10 ? 'kid' : age < 16 ? 'teen' : 'adult';
-			} catch {}
+			} catch { }
 			const payload = { ...userdata, ageGroup, name };
-			try { payload.history = (chatHistory || []).slice(-12); } catch {}
+			try { payload.history = (chatHistory || []).slice(-12); } catch { }
 			try {
 				// Do NOT force 'fast' in voice mode; default to balanced/full responses
 				if (!payload.speed) payload.speed = 'balanced';
-			} catch {}
+			} catch { }
 
 			// Debug log for networking
-			try { console.debug('llama-chat-stream request', { baseURL, url: `${baseURL}/llama-chat-stream`, payload, options }); } catch {}
+			try { console.debug('llama-chat-stream request', { baseURL, url: `${baseURL}/llama-chat-stream`, payload, options }); } catch { }
 			// Ensure language hint travels with the request so backend can reply in Hindi when selected
 			const currentLang = (typeof lang === 'string' && lang) || (settings?.ttsLang) || 'en-IN';
 			payload.lang = currentLang;
@@ -472,7 +480,7 @@ const ChatBot = ({ setIsSpeaking }) => {
 						}
 						try {
 							if (audio) await playTTS(fallback.data.result);
-						} catch {}
+						} catch { }
 					}
 					return;
 				} catch (e) {
@@ -515,7 +523,7 @@ const ChatBot = ({ setIsSpeaking }) => {
 						} else if (obj.done) {
 							// meta end; could use for telemetry if needed
 						}
-					} catch {}
+					} catch { }
 				}
 			}
 			setState('idle');
@@ -540,7 +548,7 @@ const ChatBot = ({ setIsSpeaking }) => {
 					setContinueHint(true);
 					setContinueAppend(true);
 				}
-			} catch {}
+			} catch { }
 
 			// Auto-continue for Hindi as separate bubbles when enabled via options
 			try {
@@ -553,7 +561,7 @@ const ChatBot = ({ setIsSpeaking }) => {
 					await new Promise(r => setTimeout(r, 250));
 					await streamResponse({ prompt: 'कृपया आगे बताइए', lang: currentLang }, { appendToLast: false, autoContinueSegments: wantSegments - 1 });
 				}
-			} catch {}
+			} catch { }
 		} catch (e) {
 			console.error('streamResponse error', e);
 			setState('idle');
@@ -775,178 +783,177 @@ const ChatBot = ({ setIsSpeaking }) => {
 	};
 
 	return (
-	<main className='relative overflow-hidden bg-gray-900 bg-opacity-95 md:rounded-lg md:shadow-md p-4 pt-2 pb-3 w-full flex flex-col'>
-		{/* Gradient animated background */}
-		<div className='chat-gradient-background' aria-hidden>
-			<div className='gradient-sphere sphere-1' />
-			<div className='gradient-sphere sphere-2' />
-			<div className='gradient-sphere sphere-3' />
-			<div className='glow' />
-			<div className='grid-overlay' />
-			<div className='noise-overlay' />
-			<canvas ref={particleCanvasRef} id='chat-particles-canvas' className='particles-canvas' aria-hidden />
-		</div>
-		<div className='main-chat-wrapper'>
-			<div className='chat-shell'>
-				<div className='chat-grid'>
-					<aside className='left-rail'>
-						<div id='chacha-3d-mount' className='model-holder chacha-3d-pill relative flex items-center justify-center'>
-							<ChachaCanvas />
-						</div>
-					</aside>
-
-					<section className='right-panel'>
-						<div className='flex items-center justify-between mb-4'>
-							<h1 className='text-2xl md:text-3xl font-extrabold text-white text-center flex-1'>
-								Welcome to the Namami Gange Interactive Portal
-								<span className='block text-blue-300 mt-2 text-lg md:text-xl font-semibold'>Chacha Chaudhary</span>
-							</h1>
-							<div className='flex items-center gap-2'>
-								<button
-									className='text-xs md:text-sm px-3 py-2 rounded-md bg-gray-800 text-gray-100 border border-gray-600 hover:bg-gray-700'
-									onClick={() => { resetHistory(); setState('idle'); setMessage(''); setContinueHint(false); setContinueAppend(false); }}
-								>
-									New chat
-								</button>
-								<button
-									className='text-xs md:text-sm px-3 py-2 rounded-md bg-gray-800 text-gray-100 border border-gray-600 hover:bg-gray-700 flex items-center gap-2'
-									onClick={handleaudio}
-									title={audio ? 'Disable voice (no auto TTS)' : 'Enable voice (auto TTS)'}
-								>
-									{audio ? (<><HiOutlineSpeakerWave /><span className='hidden md:inline'>Voice on</span></>) : (<><HiOutlineSpeakerXMark /><span className='hidden md:inline'>Voice off</span></>)}
-								</button>
-								<label className='flex items-center gap-2 text-xs md:text-sm text-gray-300'>
-									<input type='checkbox' checked={streamingEnabled} onChange={(e)=>setStreamingEnabled(e.target.checked)} />
-									Stream replies
-								</label>
+		<main className='relative overflow-hidden bg-gray-900 bg-opacity-95 md:rounded-lg md:shadow-md p-4 pt-2 pb-3 w-full flex flex-col'>
+			{/* Gradient animated background */}
+			<div className='chat-gradient-background' aria-hidden>
+				<div className='gradient-sphere sphere-1' />
+				<div className='gradient-sphere sphere-2' />
+				<div className='gradient-sphere sphere-3' />
+				<div className='glow' />
+				<div className='grid-overlay' />
+				<div className='noise-overlay' />
+				<canvas ref={particleCanvasRef} id='chat-particles-canvas' className='particles-canvas' aria-hidden />
+			</div>
+			<div className='main-chat-wrapper'>
+				<div className='chat-shell'>
+					<div className='chat-grid'>
+						<aside className='left-rail'>
+							<div id='chacha-3d-mount' className='model-holder chacha-3d-pill relative flex items-center justify-center'>
+								<ChachaCanvas />
 							</div>
-						</div>
-						{/* Messages card */}
-						<div ref={containerRef} className='messages-card hide-scrollbar flex-1 overflow-y-auto p-4 md:p-6'>
-							<div className='flex flex-col space-y-4'>
-								{chatHistory.length === 0 ? (
-									<Fragment>
-										{/* Personalized wave if name known */}
-										{(() => { try { const p = JSON.parse(localStorage.getItem('userProfile')||'null'); if (p?.name) return (<p className='text-gray-300 text-sm mb-2'>Hi {p.name} 👋 — ask me anything about the Ganga, projects near you, or how to help.</p>); } catch {} return null; })()}
-										<Welcome />
-										<div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3'>
-											{samplePhrases.map(phrase => (
-												<button
-													key={phrase}
-													onClick={() => {
-														addMessage('user', phrase);
-														setTimeout(() => {
-															setState('idle');
-															addMessage('assistant', 'Wait, I am looking for your query!');
-														}, 1100);
-													}}
-													className='bg-gray-100 border-gray-300 border-2 rounded-md p-2 text-sm'>
-													{phrase}
-												</button>
-											))}
-										</div>
-									</Fragment>
-								) : (
-									chatHistory.map((chat, i) => (
-										<div key={i} className={`flex ${chat.role === 'user' ? 'justify-end' : 'justify-start'} w-full`}>
-											<div className={`rounded-2xl px-4 py-3 shadow-sm max-w-[70%] text-sm font-medium ${chat.role === 'user' ? 'bg-blue-700 text-white' : 'bg-gray-800 text-gray-100'} mb-3`}>
-												{chat.content}
+						</aside>
+
+						<section className='right-panel'>
+							<div className='flex items-center justify-between mb-4'>
+								<h1 className='text-2xl md:text-3xl font-extrabold text-white text-center flex-1'>
+									{t('chat.title')}
+									<span className='block text-blue-300 mt-2 text-lg md:text-xl font-semibold'>{t('chat.subtitle')}</span>
+								</h1>
+								<div className='flex items-center gap-2'>
+									<button
+										className='text-xs md:text-sm px-3 py-2 rounded-md bg-gray-800 text-gray-100 border border-gray-600 hover:bg-gray-700'
+										onClick={() => { resetHistory(); setState('idle'); setMessage(''); setContinueHint(false); setContinueAppend(false); }}
+									>
+										{t('chat.newChat')}
+									</button>
+									<button
+										className='text-xs md:text-sm px-3 py-2 rounded-md bg-gray-800 text-gray-100 border border-gray-600 hover:bg-gray-700 flex items-center gap-2'
+										onClick={handleaudio}
+										title={audio ? 'Disable voice (no auto TTS)' : 'Enable voice (auto TTS)'}
+									>
+										{audio ? (<><HiOutlineSpeakerWave /><span className='hidden md:inline'>{t('chat.voiceOn')}</span></>) : (<><HiOutlineSpeakerXMark /><span className='hidden md:inline'>{t('chat.voiceOff')}</span></>)}
+									</button>
+									<label className='flex items-center gap-2 text-xs md:text-sm text-gray-300'>
+										<input type='checkbox' checked={streamingEnabled} onChange={(e) => setStreamingEnabled(e.target.checked)} />
+										{t('chat.streamReplies')}
+									</label>
+								</div>
+							</div>
+							{/* Messages card */}
+							<div ref={containerRef} className='messages-card hide-scrollbar flex-1 overflow-y-auto p-4 md:p-6'>
+								<div className='flex flex-col space-y-4'>
+									{chatHistory.length === 0 ? (
+										<Fragment>
+											{/* Personalized wave if name known */}
+											{(() => { try { const p = JSON.parse(localStorage.getItem('userProfile') || 'null'); if (p?.name) return (<p className='text-gray-300 text-sm mb-2'>{t('chat.greetingPrefix')} {p.name} 👋 {t('chat.greetingSuffix')}</p>); } catch { } return null; })()}
+											<Welcome />
+											<div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3'>
+												{samplePhrases.map(phrase => (
+													<button
+														key={phrase}
+														onClick={async () => {
+															setMessage(phrase);
+															// Use a small delay to ensure the message state is set before sending
+															await new Promise(r => setTimeout(r, 50));
+															await sendMessage();
+														}}
+														className='bg-gray-100 border-gray-300 border-2 rounded-md p-2 text-sm'>
+														{phrase}
+													</button>
+												))}
+											</div>
+										</Fragment>
+									) : (
+										chatHistory.map((chat, i) => (
+											<div key={i} className={`flex ${chat.role === 'user' ? 'justify-end' : 'justify-start'} w-full`}>
+												<div className={`rounded-2xl px-4 py-3 shadow-sm max-w-[70%] text-sm font-medium ${chat.role === 'user' ? 'bg-blue-700 text-white' : 'bg-gray-800 text-gray-100'} mb-3`}>
+													{chat.content}
+												</div>
+											</div>
+										))
+									)}
+									{/* Typing indicator bubble when assistant is thinking */}
+									{(state === 'waiting' || state === 'thinking') && (
+										<div className='flex justify-start w-full'>
+											<div className='rounded-2xl px-4 py-3 shadow-sm max-w-[60%] text-sm font-medium bg-gray-800 text-gray-300 mb-3'>
+												<span className='inline-flex items-center space-x-2'>
+													<span className='w-2 h-2 bg-gray-400 rounded-full animate-bounce' style={{ animationDelay: '0ms' }} />
+													<span className='w-2 h-2 bg-gray-400 rounded-full animate-bounce' style={{ animationDelay: '150ms' }} />
+													<span className='w-2 h-2 bg-gray-400 rounded-full animate-bounce' style={{ animationDelay: '300ms' }} />
+													<span className='ml-2'>{t('chat.thinking')}</span>
+												</span>
 											</div>
 										</div>
-									))
-								)}
-								{/* Typing indicator bubble when assistant is thinking */}
-								{(state === 'waiting' || state === 'thinking') && (
-									<div className='flex justify-start w-full'>
-										<div className='rounded-2xl px-4 py-3 shadow-sm max-w-[60%] text-sm font-medium bg-gray-800 text-gray-300 mb-3'>
-											<span className='inline-flex items-center space-x-2'>
-												<span className='w-2 h-2 bg-gray-400 rounded-full animate-bounce' style={{ animationDelay: '0ms' }} />
-												<span className='w-2 h-2 bg-gray-400 rounded-full animate-bounce' style={{ animationDelay: '150ms' }} />
-												<span className='w-2 h-2 bg-gray-400 rounded-full animate-bounce' style={{ animationDelay: '300ms' }} />
-												<span className='ml-2'>Thinking…</span>
-											</span>
+									)}
+									{/* Continue hint when answer likely truncated */}
+									{continueHint && state === 'idle' && (
+										<div className='flex justify-start w-full'>
+											<div className='rounded-2xl px-4 py-2 shadow-sm text-sm bg-gray-700 text-gray-100 mb-3 flex items-center gap-3'>
+												<span>{t('chat.continuePrompt')}</span>
+												<button className='px-2 py-1 bg-blue-600 hover:bg-blue-700 rounded text-white' onClick={() => { void continueAnswer(); }}>{t('chat.continue')}</button>
+												<button className='px-2 py-1 bg-gray-600 hover:bg-gray-500 rounded' onClick={() => { setContinueHint(false); setContinueAppend(false); }}>{t('chat.dismiss')}</button>
+											</div>
 										</div>
-									</div>
-								)}
-								{/* Continue hint when answer likely truncated */}
-								{continueHint && state === 'idle' && (
-									<div className='flex justify-start w-full'>
-										<div className='rounded-2xl px-4 py-2 shadow-sm text-sm bg-gray-700 text-gray-100 mb-3 flex items-center gap-3'>
-											<span>That answer was long. Continue?</span>
-											<button className='px-2 py-1 bg-blue-600 hover:bg-blue-700 rounded text-white' onClick={() => { void continueAnswer(); }}>Continue</button>
-											<button className='px-2 py-1 bg-gray-600 hover:bg-gray-500 rounded' onClick={() => { setContinueHint(false); setContinueAppend(false); }}>Dismiss</button>
-										</div>
-									</div>
-								)}
-							</div>
-							<div ref={bottomRef} />
-						</div>
-
-						{/* Input row inside the right panel */}
-						<div className='chat-box-input-field mt-3'>
-						  <div className='chat-pill-container'>
-							<div className='chat-pill' role='search'>
-								<div className='chat-pill__left'>
-									<div style={{ width: '120px' }}>
-										<SelectLang setLang={setLang} />
-									</div>
-								</div>
-
-								<div className='chat-pill__input-wrap'>
-									{ (isOverlayVisible || listening || recState === 'recording') ? (
-									  <div className='chat-pill__waveform' onClick={() => { /* focus or toggle */ }}>
-										{Array.from({ length: 26 }).map((_, idx) => (
-										  <VisualizerBar key={idx} idx={idx} analyserRef={analyserRef} listening={listening || recState === 'recording'} />
-										))}
-									  </div>
-									) : (
-									  <input
-										type='text'
-										ref={inputRef}
-										className='chat-pill__input chat-input'
-										placeholder={state === 'idle' ? (isHindiUI ? 'कुछ भी पूछें' : 'Ask anything') : '...'}
-										value={message}
-										onChange={handleInputChange}
-										onKeyDown={(e) => {
-										  if (e.key === 'Enter' && !e.shiftKey) {
-											e.preventDefault();
-											void sendMessage();
-										  }
-										}}
-										onBlur={handleInputBlur}
-										disabled={state !== 'idle'}
-									  />
 									)}
 								</div>
+								<div ref={bottomRef} />
+							</div>
 
-								<div className='chat-pill__actions'>
-									<button
-									  title={(isOverlayVisible || listening) ? 'Stop' : 'Start voice input'}
-									  onClick={async () => {
-										if (isOverlayVisible) await stopRecording(); else await startRecording();
-									  }}
-									  className={'chat-pill__mic ' + (isOverlayVisible || listening ? 'active' : '')}
-									>
-									  <BsMic />
-									</button>
+							{/* Input row inside the right panel */}
+							<div className='chat-box-input-field mt-3'>
+								<div className='chat-pill-container'>
+									<div className='chat-pill' role='search'>
+										<div className='chat-pill__left'>
+											<div style={{ width: '120px' }}>
+												<SelectLang setLang={setLang} />
+											</div>
+										</div>
 
-									<button
-									  className='chat-pill__send'
-									  onClick={() => { void sendMessage(); }}
-									  disabled={!message || state !== 'idle'}
-									  aria-label='Send'
-									>
-									  <span className='chat-pill__send-text'>Send</span>
-									</button>
+										<div className='chat-pill__input-wrap'>
+											{(isOverlayVisible || listening || recState === 'recording') ? (
+												<div className='chat-pill__waveform' onClick={() => { /* focus or toggle */ }}>
+													{Array.from({ length: 26 }).map((_, idx) => (
+														<VisualizerBar key={idx} idx={idx} analyserRef={analyserRef} listening={listening || recState === 'recording'} />
+													))}
+												</div>
+											) : (
+												<input
+													type='text'
+													ref={inputRef}
+													className='chat-pill__input chat-input'
+													placeholder={state === 'idle' ? (isHindiUI ? 'कुछ भी पूछें' : t('chat.placeholderAsk')) : '...'}
+													value={message}
+													onChange={handleInputChange}
+													onKeyDown={(e) => {
+														if (e.key === 'Enter' && !e.shiftKey) {
+															e.preventDefault();
+															void sendMessage();
+														}
+													}}
+													onBlur={handleInputBlur}
+													disabled={state !== 'idle'}
+												/>
+											)}
+										</div>
+
+										<div className='chat-pill__actions'>
+											<button
+												title={(isOverlayVisible || listening) ? 'Stop' : 'Start voice input'}
+												onClick={async () => {
+													if (isOverlayVisible) await stopRecording(); else await startRecording();
+												}}
+												className={'chat-pill__mic ' + (isOverlayVisible || listening ? 'active' : '')}
+											>
+												<BsMic />
+											</button>
+
+											<button
+												className='chat-pill__send'
+												onClick={() => { void sendMessage(); }}
+												disabled={!message || state !== 'idle'}
+												aria-label='Send'
+											>
+												<span className='chat-pill__send-text'>{t('chat.send')}</span>
+											</button>
+										</div>
+									</div>
 								</div>
 							</div>
-						  </div>
+						</section>
 					</div>
-					</section>
 				</div>
 			</div>
-		</div>
-	</main>
+		</main>
 	);
 };
 
