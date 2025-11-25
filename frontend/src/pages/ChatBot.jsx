@@ -414,8 +414,7 @@ const ChatBot = ({ setIsSpeaking }) => {
 				if (typeof rawAge === 'number') age = rawAge;
 				else if (typeof rawAge === 'string' && /^\d+$/.test(rawAge.trim())) age = parseInt(rawAge.trim(), 10);
 				if (typeof age === 'number' && !Number.isNaN(age)) {
-					// For conversational simplification, treat users under 15 as 'kid'
-					ageGroup = age < 15 ? 'kid' : age < 16 ? 'teen' : 'adult';
+					ageGroup = age <= 10 ? 'kid' : age < 16 ? 'teen' : 'adult';
 				}
 			} catch (e) { console.debug('userProfile parse error', e); }
 			const userToken = localStorage.getItem('userToken');
@@ -466,12 +465,8 @@ const ChatBot = ({ setIsSpeaking }) => {
 				const p = JSON.parse(localStorage.getItem('userProfile') || 'null');
 				const rawAge = p?.age; name = p?.name;
 				let age = null;
-				if (typeof rawAge === 'number') age = rawAge;
-				else if (typeof rawAge === 'string' && /^\d+$/.test(rawAge.trim())) age = parseInt(rawAge.trim(), 10);
-				if (typeof age === 'number' && !Number.isNaN(age)) {
-					// Treat users under 15 as 'kid' so they receive story-style, simplified replies
-					ageGroup = age < 15 ? 'kid' : age < 16 ? 'teen' : 'adult';
-				}
+				if (typeof rawAge === 'number') age = rawAge; else if (typeof rawAge === 'string' && /^\d+$/.test(rawAge.trim())) age = parseInt(rawAge.trim(), 10);
+				if (typeof age === 'number' && !Number.isNaN(age)) ageGroup = age <= 10 ? 'kid' : age < 16 ? 'teen' : 'adult';
 			} catch { }
 			const payload = { ...userdata, ageGroup, name };
 			try { payload.history = (chatHistory || []).slice(-12); } catch { }

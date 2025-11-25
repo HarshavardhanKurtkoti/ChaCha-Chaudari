@@ -1,11 +1,13 @@
-"""
-Improved Flask backend for Llama RAG + safe TTS/STT handling
+"""Improved Flask backend for Llama RAG + safe TTS/STT handling.
+
 - Uses unique filenames for audio (uuid)
 - Saves TTS audio and returns file to client (frontend should play it)
 - Removes Selenium-based server STT; provides a simple /stt endpoint that accepts POSTed text from client
 - Properly injects RAG context into prompt
 - Adds basic error handling and logging
-- Notes: frontend should capture microphone (Web Speech API) and POST recognized text to /stt
+
+Notes: frontend should capture microphone (Web Speech API) and POST
+recognized text to ``/stt``.
 
 Harsha / Buddy: this file is a cleaned-up, safer version of your draft.
 """
@@ -35,11 +37,9 @@ os.environ.setdefault("FLASK_DEBUG", "0")
 os.environ.setdefault("MODEL_REPO_LOCAL_ONLY", "1")  # default to local-only model loading
 
 # Stub out librosa to avoid importing numba during transformers import path
-# We don't use audio features, but transformers imports audio_utils which tries to import librosa.
 if "librosa" not in sys.modules:
     import importlib.machinery as _machinery
     _librosa_mod = types.ModuleType("librosa")
-    # minimal attributes to satisfy transformers' availability checks
     _librosa_mod.__version__ = "0.0"
     _librosa_mod.__spec__ = _machinery.ModuleSpec(name="librosa", loader=None)
     sys.modules["librosa"] = _librosa_mod
@@ -74,16 +74,14 @@ try:
     import asyncio
 except Exception:
     logger.warning('piper_tts helper not found; falling back to stubs')
-    # minimal stubs so module imports succeed; actual piper functionality will be unavailable
+
     def list_piper_voices(voices_dir: str):
         return []
 
     def synthesize_with_piper(piper_path: str, model_path: str, config_path: str, text: str, out_wav: str):
         raise RuntimeError('piper_tts not installed; cannot synthesize')
 
-# Piper configuration: path to piper executable and voices directory (contains *.onnx and *.json)
 _piper_bin = os.environ.get('PIPER_PATH') or env_vars.get('PIPER_PATH') or 'piper'
-# Resolve piper in PATH if a bare command is provided
 if not os.path.isabs(_piper_bin):
     which = shutil.which(_piper_bin)
     PIPER_PATH = which or _piper_bin
@@ -92,10 +90,8 @@ else:
 PIPER_VOICES_DIR = os.path.join(os.getcwd(), 'voices', 'piper')
 os.makedirs(PIPER_VOICES_DIR, exist_ok=True)
 
-# TTS engine selection: only 'piper' is supported in this repo
 TTS_ENGINE = (os.environ.get('TTS_ENGINE') or env_vars.get('TTS_ENGINE') or 'piper').strip().lower()
 
-# Cache Piper voices
 _PIPER_CACHE = {"time": 0.0, "list": []}
 
 def get_piper_voices(force_refresh: bool = False):
@@ -108,10 +104,6 @@ def get_piper_voices(force_refresh: bool = False):
     return voices
 
 def pick_indian_piper_voice(preferred_id: str | None) -> dict | None:
-    """Pick a Piper voice dict by id or choose an Indian-locale default.
-    Preference order: exact id match -> any HI-IN -> any EN-IN -> any available.
-    Returns the voice dict or None.
-    """
     voices = get_piper_voices()
     if not voices:
         return None
@@ -119,7 +111,6 @@ def pick_indian_piper_voice(preferred_id: str | None) -> dict | None:
     for v in voices:
         if v.get('id') == pref or v.get('shortName') == pref:
             return v
-    # prefer Hindi then Indian English
     for v in voices:
         if str(v.get('locale')).upper() == 'HI-IN':
             return v
@@ -128,10 +119,8 @@ def pick_indian_piper_voice(preferred_id: str | None) -> dict | None:
             return v
     return voices[0]
 
-# Suppress pdfminer warnings
 logging.getLogger("pdfminer").setLevel(logging.ERROR)
 
-# Reduce noisy third-party logs unless explicitly overridden
 try:
     logging.getLogger("accelerate").setLevel(logging.WARNING)
     logging.getLogger("transformers").setLevel(logging.WARNING)
@@ -143,27 +132,23 @@ _pywarnings.filterwarnings(
     message=r"`prompt_attention_mask` is specified but `attention_mask` is not\\.",
 )
 
-# Suppress noisy torchvision C-extension warning if torchvision gets imported indirectly
 warnings.filterwarnings(
     "ignore",
     message="Failed to load image Python extension*",
     category=UserWarning,
 )
 
-# RAG utils assumed to be implemented elsewhere (embedder, index, chunks)
 try:
     from rag_utils import embedder, index, chunks
 except Exception as e:
     logger.error(f"Failed to import rag_utils components: {e}")
     embedder, index, chunks = None, None, None
 
-# DB mode detection for health reporting
 try:
     from db import _USING_IN_MEMORY_DB  # type: ignore
 except Exception:
     _USING_IN_MEMORY_DB = True
 
-# Transformers / Llama (optional)
 try:
     import torch  # noqa: F401
     from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig  # type: ignore
@@ -177,23 +162,15 @@ except Exception as _tx_err:
     AutoTokenizer = AutoModelForCausalLM = BitsAndBytesConfig = None  # type: ignore
     _TRANSFORMERS_AVAILABLE = False
 
-
-# Local TTS: repository uses Piper-based local TTS only.
-
-# Deprecated: AssistantVoice for edge-tts (kept for compatibility); Piper uses voice id instead
 AssistantVoice = env_vars.get('AssistantVoice', '')
 InputLanguage = env_vars.get('InputLanguage', 'en')
-# Prefer fully local model usage by default. You can override via env MODEL_REPO.
-# Default local path points to a Phi-3-mini instruct model downloaded under backend/models/.
-# Set MODEL_REPO_LOCAL_ONLY=1 to prevent any network fetches during from_pretrained.
-os.environ.setdefault('HF_HUB_OFFLINE', '1')  # enforce offline cache/local paths by default
+os.environ.setdefault('HF_HUB_OFFLINE', '1')
 MODEL_REPO = (
     os.environ.get('MODEL_REPO')
     or env_vars.get('MODEL_REPO')
     or os.path.join(os.getcwd(), 'models', 'phi-3-mini-4k-instruct')
 )
 
-# Welcome message configuration for first-load UX
 WELCOME_TRIGGER_TEXT = (
     os.environ.get('WELCOME_TRIGGER_TEXT')
     or env_vars.get('WELCOME_TRIGGER_TEXT')
@@ -210,77 +187,43 @@ WELCOME_MESSAGE = (
 )
 WELCOME_AUTOTTS = (os.environ.get('WELCOME_AUTOTTS') or env_vars.get('WELCOME_AUTOTTS') or '1').strip().lower() in ('1','true','yes')
 
-# Ensure Data dir
 DATA_DIR = os.path.join(os.getcwd(), 'Data')
 os.makedirs(DATA_DIR, exist_ok=True)
 
-# Helper: generate unique filename
 def unique_filename(prefix: str, ext: str):
     return os.path.join(DATA_DIR, f"{prefix}_{uuid.uuid4().hex}.{ext}")
 
 
 def sanitize_text_for_tts(text: str) -> str:
-    """Minimal TTS sanitizer: remove literal double-asterisk markers used for bold (**).
-    This keeps all other formatting intact per request (do not change anything else).
-    """
     if not text:
         return text
     try:
         s = str(text)
-        # Remove literal double asterisks used for bold markers
-        s = s.replace('**', '')
-        # Also remove spaced variants like '* *' that may be produced accidentally
-        s = s.replace('* *', ' ')
-        # Collapse multiple spaces
-        s = re.sub(r'[ \t]{2,}', ' ', s)
-        return s.strip()
+        # Drop any content inside parentheses, e.g. (like this)
+        try:
+            s = re.sub(r"\([^)]*\)", " ", s)
+        except Exception:
+            pass
+        s = re.sub(r'```[\s\S]*?```', ' ', s)
+        s = re.sub(r'`([^`]*)`', r"\1", s)
+        s = re.sub(r'\*\*(.*?)\*\*', r"\1", s)
+        s = re.sub(r'__(.*?)__', r"\1", s)
+        s = re.sub(r'\*(.*?)\*', r"\1", s)
+        s = re.sub(r'_(.*?)_', r"\1", s)
+        s = s.replace('`', '')
+        s = s.replace('*', '')
+        s = re.sub(r"\r\n|\r", "\n", s)
+        s = re.sub(r"\n{3,}", "\n\n", s)
+        s = re.sub(r"[ \t]{2,}", ' ', s)
+        s = s.strip()
+        return s
     except Exception:
         return text
 
-
-def _strip_leading_duplicate(result: str, conversation_block: str) -> str:
-    """If the model output starts by repeating the previous assistant turn or
-    the welcome message, strip the duplicated leading text to avoid awkward
-    concatenated replies in the client."""
-    try:
-        if not result:
-            return result
-        s = str(result)
-        # If the model begins with configured welcome message, remove that prefix
-        if WELCOME_MESSAGE and s.startswith(WELCOME_MESSAGE):
-            return s[len(WELCOME_MESSAGE):].lstrip() or s
-        # Try to find the last assistant turn in the conversation_block
-        last_assistant = None
-        if conversation_block:
-            for line in conversation_block.splitlines()[::-1]:
-                if line.strip().lower().startswith('assistant:'):
-                    # extract after 'Assistant:'
-                    last_assistant = line.split(':', 1)[1].strip()
-                    break
-        if last_assistant:
-            # If the result begins by repeating the last assistant content, remove the overlap
-            la = last_assistant.strip()
-            if la and s.startswith(la):
-                return s[len(la):].lstrip() or s
-            # Sometimes the model echoes a shorter prefix (first sentence) — try sentence-level match
-            try:
-                import re as _re
-                first_sentence = _re.split(r'[\.\!\?]\s+', la, maxsplit=1)[0]
-                if first_sentence and s.startswith(first_sentence):
-                    return s[len(first_sentence):].lstrip() or s
-            except Exception:
-                pass
-        return s
-    except Exception:
-        return result
-
 def generate_tts_file(text: str, voice_id: str | None = None) -> str:
-    """Generate TTS using selected engine. Returns path to a WAV file."""
-    # Allow some resilience when TTS_ENGINE is set to an unsupported value
     engine_to_use = TTS_ENGINE
     if engine_to_use != 'piper':
         try:
-            # If Piper voices are available on disk, prefer piper even if env differs
             piper_voices = get_piper_voices()
         except Exception:
             piper_voices = []
@@ -289,10 +232,8 @@ def generate_tts_file(text: str, voice_id: str | None = None) -> str:
             engine_to_use = 'piper'
         else:
             logger.info(f"TTS_ENGINE '{TTS_ENGINE}' not supported and no Piper voices found — falling back to local-basic")
-            # Use local basic TTS as a fallback
             out_wav = unique_filename('speech', 'wav')
             try:
-                # Import local-basic helper lazily to avoid import-order issues
                 try:
                     from edge_local_tts_stt import tts_local_basic
                 except Exception:
@@ -303,7 +244,6 @@ def generate_tts_file(text: str, voice_id: str | None = None) -> str:
                 logger.exception('local-basic fallback failed')
                 raise RuntimeError('No available TTS engine to synthesize audio') from e
 
-    # Now handle piper engine
     if engine_to_use == 'piper':
         voice = pick_indian_piper_voice(voice_id)
         if not voice:
@@ -313,15 +253,10 @@ def generate_tts_file(text: str, voice_id: str | None = None) -> str:
         out_wav = unique_filename('speech', 'wav')
         synthesize_with_piper(PIPER_PATH, model_path, config_path, text, out_wav)
         return out_wav
-    # Should not reach here
     raise RuntimeError('Failed to select TTS engine')
 
 
 def _safe_send_file(out_path: str, mimetype: str, engine_label: str, voice_id: str | None = None):
-    """Send a generated audio file only if it exists and is non-empty.
-    Returns a Flask response (file or JSON error).
-    Adds diagnostic headers including generated file size and engine used.
-    """
     try:
         if not out_path or not os.path.exists(out_path):
             logger.error('TTS produced no file: %r', out_path)
@@ -333,7 +268,6 @@ def _safe_send_file(out_path: str, mimetype: str, engine_label: str, voice_id: s
             size = 0
         if size == 0:
             logger.error('TTS produced empty file: %r', out_path)
-            # Try to provide a friendly fallback sample if available
             sample = os.path.join(os.getcwd(), 'frontend', 'public', 'assets', 'chacha-cahaudhary', 'Greeting.wav')
             if os.path.exists(sample):
                 resp = send_file(sample, mimetype='audio/wav', as_attachment=False)
@@ -345,7 +279,6 @@ def _safe_send_file(out_path: str, mimetype: str, engine_label: str, voice_id: s
                     pass
                 return resp
             return jsonify({'error': 'TTS produced empty file', 'path': out_path}), 500
-        # If file is suspiciously small, return the same friendly fallback so clients don't get 0:00
         if size < 2000:
             logger.warning('TTS produced very small file (%d bytes): %r — returning bundled sample fallback', size, out_path)
             sample = os.path.join(os.getcwd(), 'frontend', 'public', 'assets', 'chacha-cahaudhary', 'Greeting.wav')
@@ -358,7 +291,6 @@ def _safe_send_file(out_path: str, mimetype: str, engine_label: str, voice_id: s
                 except Exception:
                     pass
                 return resp
-            # no sample fallback available; return error to avoid handing tiny header-only audio
             return jsonify({'error': 'TTS produced too-small audio', 'path': out_path, 'size': size}), 500
         resp = send_file(out_path, mimetype=mimetype, as_attachment=False)
         try:
@@ -373,7 +305,6 @@ def _safe_send_file(out_path: str, mimetype: str, engine_label: str, voice_id: s
         logger.exception('Failed to send generated audio')
         return jsonify({'error': 'failed to send audio', 'details': str(e)}), 500
 
-# Simple WAV header helper (if needed)
 def convert_to_wav_headered(audio_data: bytes, bits_per_sample: int = 16, rate: int = 24000) -> bytes:
     num_channels = 1
     data_size = len(audio_data)
@@ -401,17 +332,12 @@ def convert_to_wav_headered(audio_data: bytes, bits_per_sample: int = 16, rate: 
 
 
 def convert_to_wav_file(src_path: str) -> str:
-    """Ensure the given audio file is a WAV file. If not, convert it to WAV.
-    Tries pydub first (if available), otherwise falls back to ffmpeg CLI.
-    Returns the path to the WAV file (may be the original if already WAV).
-    """
     try:
         if not src_path or not os.path.exists(src_path):
             raise FileNotFoundError(f"Source audio not found: {src_path}")
         if src_path.lower().endswith('.wav'):
             return src_path
         dst = unique_filename('speech', 'wav')
-        # Try pydub first
         try:
             from pydub import AudioSegment  # type: ignore
             aud = AudioSegment.from_file(src_path)
@@ -420,7 +346,6 @@ def convert_to_wav_file(src_path: str) -> str:
             return dst
         except Exception:
             logger.info('pydub convert to WAV failed; trying ffmpeg CLI')
-        # Fallback: use ffmpeg CLI
         try:
             cmd = ['ffmpeg', '-y', '-i', src_path, dst]
             subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -433,28 +358,18 @@ def convert_to_wav_file(src_path: str) -> str:
         logger.exception('convert_to_wav_file failed')
         raise
 
-"""Model initialization with conservative defaults.
-We avoid unnecessary memory pressure on CPU-only machines by:
-- keeping context small and
-- using smaller max_new_tokens by default (overridable via env vars)
-"""
-
-# Load tokenizer + model (with bitsandbytes config if available)
 tokenizer = None
 llm = None
 _LLM_DEVICE = "cpu"
 logger.info('Initializing LLM (optional)...')
-# Allow skipping heavy LLM load during dev/run by setting SKIP_LLM_LOAD=1
 if os.environ.get('SKIP_LLM_LOAD', env_vars.get('SKIP_LLM_LOAD', '')).strip() not in ('1', 'true', 'yes'):
     try:
         if _TRANSFORMERS_AVAILABLE:
-            # Decide whether we should restrict to local-only model loads.
             local_only_flag = (os.environ.get('MODEL_REPO_LOCAL_ONLY') or env_vars.get('MODEL_REPO_LOCAL_ONLY') or '').strip().lower()
             model_repo_local_only = local_only_flag in ('1', 'true', 'yes')
 
             repo_path = None
             try:
-                # If MODEL_REPO looks like a filesystem path, prefer local folder when available
                 if isinstance(MODEL_REPO, str) and (MODEL_REPO.startswith('.') or os.path.isabs(MODEL_REPO) or os.path.sep in MODEL_REPO):
                     candidate = os.path.abspath(MODEL_REPO)
                     if os.path.isdir(candidate):
@@ -472,7 +387,6 @@ if os.environ.get('SKIP_LLM_LOAD', env_vars.get('SKIP_LLM_LOAD', '')).strip() no
                         logger.info(f"Attempting to load LLM from '{MODEL_REPO}' (network fetch allowed). Set MODEL_REPO_LOCAL_ONLY=1 to avoid network fetches.")
                         repo_path = MODEL_REPO
 
-                # If repo_path is set (either local path or resolved MODEL_REPO), attempt to load tokenizer + model.
                 if repo_path:
                     try:
                         tokenizer = AutoTokenizer.from_pretrained(repo_path, use_fast=True, local_files_only=True)
@@ -484,7 +398,6 @@ if os.environ.get('SKIP_LLM_LOAD', env_vars.get('SKIP_LLM_LOAD', '')).strip() no
                             logger.exception('Tokenizer load failed; aborting LLM load')
                             tokenizer = None
 
-                    # Detect CUDA and bitsandbytes availability
                     has_cuda = False
                     bnb_available = False
                     try:
@@ -500,7 +413,6 @@ if os.environ.get('SKIP_LLM_LOAD', env_vars.get('SKIP_LLM_LOAD', '')).strip() no
                     use_bnb_env = (os.environ.get('LLAMA_USE_BNB') or env_vars.get('LLAMA_USE_BNB') or '').strip().lower()
                     allow_bnb = use_bnb_env not in ('0', 'false', 'no')
 
-                    # Try bitsandbytes 4-bit load only when CUDA + bitsandbytes are available and allowed
                     primary_loaded = False
                     if allow_bnb and has_cuda and bnb_available and BitsAndBytesConfig is not None:
                         try:
@@ -525,7 +437,6 @@ if os.environ.get('SKIP_LLM_LOAD', env_vars.get('SKIP_LLM_LOAD', '')).strip() no
                             logger.exception('BNB 4-bit load failed; will try standard load next')
 
                     if not primary_loaded:
-                        # Standard load: prefer CUDA if available else CPU
                         try:
                             device_map_choice = 'auto' if has_cuda else 'cpu'
                             logger.info('Loading standard model from %s (device_map=%s)', repo_path, device_map_choice)
@@ -566,7 +477,7 @@ if os.environ.get('SKIP_LLM_LOAD', env_vars.get('SKIP_LLM_LOAD', '')).strip() no
                 if llm is not None:
                     try:
                         import torch as _torch  # type: ignore
-                        _LLM_DEVICE = next(llm.parameters()).device.type  # cuda or cpu
+                        _LLM_DEVICE = next(llm.parameters()).device.type
                     except Exception:
                         _LLM_DEVICE = "cpu"
                     logger.info(f'LLM loaded on {_LLM_DEVICE}')
@@ -580,22 +491,15 @@ if os.environ.get('SKIP_LLM_LOAD', env_vars.get('SKIP_LLM_LOAD', '')).strip() no
 else:
     logger.info('SKIP_LLM_LOAD set — skipping LLM initialization')
 
-# ---------------------------
-# TTS preload and readiness
-# ---------------------------
 def _tts_ready() -> bool:
-    """Report whether the configured TTS engine is ready to serve quickly."""
     try:
-        # Piper: ready if at least one voice is discoverable
         return len(get_piper_voices()) > 0
     except Exception:
         return False
 
 def _preload_tts_sync():
-    """Preload the selected TTS engine so first request is fast."""
     try:
         logger.info(f"Preloading TTS engine '{TTS_ENGINE}'...")
-        # Piper: scan voices once to populate cache
         _ = get_piper_voices(force_refresh=True)
         if _:
             logger.info(f"Piper TTS voices available: {len(_)}")
@@ -611,15 +515,7 @@ def _preload_tts_async():
     except Exception:
         logger.exception('Failed to start TTS preload thread')
 
-# ---------------------------
-# Fallback story builders
-# ---------------------------
 def _is_chunk_readable(txt: str) -> bool:
-    """Heuristic: prefer prose-like chunks, avoid tables/lists.
-    - Enough letters vs digits
-    - Contains sentence punctuation
-    - Not dominated by dashes/slashes
-    """
     try:
         s = (txt or "").strip()
         if not s:
@@ -657,16 +553,11 @@ def _is_mostly_english(text: str) -> bool:
         letters = sum('a' <= ch.lower() <= 'z' for ch in s)
         devanagari = sum('\u0900' <= ch <= '\u097F' for ch in s)
         total_letters = letters + devanagari + 1e-6
-        # Treat as mostly English when Latin letters dominate and Devanagari is scarce
         return letters / total_letters > 0.70
     except Exception:
         return False
 
 def _translate_with_llm_to_hindi(src: str) -> str | None:
-    """Use the loaded LLM (if available) to translate text to Hindi.
-    Returns translated text or None if translation couldn't run.
-    Keeps token/time budget very small.
-    """
     try:
         if tokenizer is None or llm is None:
             return None
@@ -683,6 +574,1459 @@ def _translate_with_llm_to_hindi(src: str) -> str | None:
     except Exception:
         return None
 
+def _kid_story_fallback(topic: str | None, lang: str | None = None) -> str:
+    t = (topic or "the Ganga river").strip()
+    try:
+        if lang and str(lang).strip().lower().startswith('hi'):
+            return (
+                "यह बात मेरी स्थानीय नोट्स में साफ़ नहीं मिली, इसलिए एक छोटी-सी कहानी से समझाते हैं। "
+                "एक शाम गंगा किनारे आशा और उसके चचेरे भाई रोहन ने चमकता पानी دیکھا।"
+                "उन्हें कुछ प्लास्टिक कप तैरते दिखे, तो दोनों ने मिलकर उन्हें उठा लिया। पास के मछुआरे ने मुस्कराकर कहा, ‘जब हम नदी को साफ़ रखते हैं, तो मछलियाँ और डॉल्फ़िन स्वस्थ रहती हैं और हमारे शहर भी बेहतर बनते हैं।’ "
+                "अगले दिन उनकी कक्षा ने एक छोटा-सा बोर्ड लगाया: ‘कचरा डस्टबिन में डालें — हमारी नदी हमारा परिवार।’ "
+                "इतनी-सी पहल से घाट साफ़ दिखने लगा और दूसरे लोग भी मदद करने लगे। क्या मैं बच्चों के लिए एक छोटा-सा काम बताऊँ जो आप आज ही कर सकते हैं?"
+            )
+    except Exception:
+        pass
+    core = (
+        "I couldn't find this in my local notes; here’s a simple story to explain it. "
+        "One evening by the Ganga, Asha and her cousin Rohan watched the water sparkle near their ghat. "
+        "They noticed a few plastic cups floating and decided to pick them up. A fisherman smiled and said, ‘When we keep the river clean, fish and dolphins stay healthy, and our towns do better too.’ "
+        "Next day, their class put up a little sign: ‘Please use the dustbin — our river is family.’ "
+        "That tiny action made the steps look nicer, and more people started helping. Would you like a tiny tip on how kids can care for the river?"
+    )
+    return core
+
+def _conversational_fallback(topic: str, name: str | None, age_group: str | None, history: list[dict] | None, lang: str | None = None) -> str:
+    t = (topic or "").strip()
+    nm = (name or "friend").strip()
+    ag = (age_group or "").strip().lower() or None
+    lt = t.lower()
+    last_user = None
+    try:
+        if history:
+            for m in reversed(history[-6:]):
+                if str(m.get('role')) in ('user', 'User'):
+                    last_user = str(m.get('content') or '').strip()
+                    break
+    except Exception:
+        pass
+
+    def _is_expand_request(txt: str) -> bool:
+        txt = (txt or '').lower().strip()
+        hi_keywords = ["विस्तार", "और बताओ", "ज्यादा", "डिटेल", "विस्तृत", "और समझाओ", "थोड़ा और", "और जानकारी", "और बताइए"]
+        en_keywords = ["expand", "elaborate", "more detail", "details", "continue", "tell me more", "go deeper"]
+        return any(k in txt for k in hi_keywords) or any(k in txt for k in en_keywords)
+
+    greetings = {"hi", "hello", "hey", "yo", "hola", "namaste", "hi!", "hello!", "hey!", "नमस्ते", "नमस्ते!"}
+    if lt in greetings or any(lt.startswith(g+" ") for g in greetings):
+        try:
+            if lang and str(lang).strip().lower().startswith('hi'):
+                opener_hi = f"नमस्ते {nm}!" if name else "नमस्ते!"
+                return (
+                    f"{opener_hi} मैं चाचा हूँ। "
+                    "आज हम क्या जानें — गंगा, नमामि गंगे, या कुछ और?"
+                )
+        except Exception:
+            pass
+        opener = f"Hey {nm}!" if name else "Hey there!"
+        return (
+            f"{opener} I’m ChaCha. Great to see you. "
+            f"What should we explore today — the Ganga, Namami Gange, or something else you’re curious about?"
+        )
+
+    if "namami gange" in lt or "namami ganga" in lt:
+        try:
+            if lang and str(lang).strip().lower().startswith('hi'):
+                core = (
+                    "नमामि गंगे गंगा की सफाई और संरक्षण के लिए भारत का मिशन है — सीवरेज ट्रीटमेंट बनाना, प्रदूषण कम करना, आवास बहाल करना और जनभागीदारी बढ़ाना।"
+                )
+                follow = "क्या किसी शहर की वास्तविक परियोजना का छोटा उदाहरण बताऊँ?"
+                return f"{('हाय ' + nm + ', ') if name else ''}{core} {follow}"
+        except Exception:
+            pass
+        core = (
+            "Namami Gange is India’s mission to clean and protect the Ganga — building sewage treatment, reducing pollution, restoring habitats, and involving people."
+        )
+        follow = "Want a quick example from a real city project?"
+        return f"{f'Hi {nm}, ' if name else ''}{core} {follow}"
+
+    if "river ganga" in lt or "ganga river" in lt or "ganges" in lt or "गंगा" in lt:
+        try:
+            if lang and str(lang).strip().lower().startswith('hi'):
+                core = (
+                    "गंगा करोड़ों लोगों की जीवनरेखा है — कईयों के लिए पवित्र, खेती और शहरों के लिए आवश्यक, और गंगेटिक डॉल्फ़िन जैसे अनोखे जीवों का घर।"
+                )
+                follow = "क्या हम वन्यजीव, संस्कृति या नदी को स्वस्थ रखने के तरीक़ों पर बात करें?"
+                return f"{('हाय ' + nm + ', ') if name else ''}{core} {follow}"
+        except Exception:
+            pass
+        core = (
+            "The Ganga is a lifeline for millions — sacred to many, vital for farms and cities, and home to unique wildlife like the Ganges river dolphin."
+        )
+        follow = "Should we talk about wildlife, culture, or how the river is kept healthy?"
+        return f"{f'Hi {nm}, ' if name else ''}{core} {follow}"
+
+    if _is_expand_request(lt):
+        base_topic = last_user if last_user and last_user != t else last_user or t
+        return _detailed_about(base_topic or t, ag, lang)
+
+    if last_user and last_user != t and len(last_user) > 3:
+        continuity = f"You mentioned earlier: '{last_user}'. "
+        continuity_hi = "आपने पहले यही पूछा था। "
+    else:
+        continuity = ""
+        continuity_hi = ""
+    follow = "Does that help, or should I go deeper with a short example?"
+    follow_hi = "क्या यह मददगार है, या एक छोटा उदाहरण देकर और विस्तार करूँ?"
+    if ag == 'kid':
+        try:
+            if lang and str(lang).strip().lower().startswith('hi'):
+                return (
+                    f"हाय {nm}, मैं {t} के बारे में आसान शब्दों में समझाता हूँ। "
+                    f"{continuity_hi}मैं इसे छोटा और दोस्ताना रखूँगा ताकि आसानी से याद रहे। {follow_hi}"
+                )
+        except Exception:
+            pass
+        return (
+            f"Hi {nm}, here’s the idea about {t} in simple words you can follow. "
+            f"{continuity}I’ll keep it short and friendly so it’s easy to remember. {follow}"
+        )
+    try:
+        if lang and str(lang).strip().lower().startswith('hi'):
+            return (
+                f"{t} की मूल बातें — साफ़ और संक्षेप में। {continuity_hi}{follow_hi}"
+            )
+    except Exception:
+        pass
+    return (
+        f"Here’s the gist of {t}: clear and to the point. {continuity}{follow}"
+    )
+
+def _teen_short_about(topic: str) -> str:
+    lt = (topic or "").lower()
+    if "namami gange" in lt or "namami ganga" in lt:
+        return (
+            "Namami Gange is India’s national mission (launched 2014) to clean and rejuvenate the Ganga: "
+            "sewage treatment plants, river-surface cleaning, industrial effluent control, biodiversity, afforestation, and public participation. "
+            "Goal: sustained reduction in pollution and a healthier river ecosystem."
+        )
+    return (
+        f"Here’s the gist of {topic}: key ideas explained clearly in a few lines, with causes, effects, and one practical example."
+    )
+
+def _adult_short_about(topic: str) -> str:
+    lt = (topic or "").lower()
+    if "namami gange" in lt or "namami ganga" in lt:
+        return (
+            "Namami Gange (2014–) is GoI’s flagship river rejuvenation programme: "
+            "pillars include sewage infrastructure, industrial discharge control, riverfront development, biodiversity conservation, afforestation, and public engagement."
+        )
+    return (
+        f"Summary of {topic}: concise definition, 2–3 pillars, and intended outcomes."
+    )
+
+def _detailed_about(topic: str, age_group: str | None, lang: str | None = None) -> str:
+    t = (topic or "").strip()
+    ag = (age_group or "").strip().lower() or None
+    lt = t.lower()
+
+    is_hi = False
+    try:
+        if lang and str(lang).strip().lower().startswith('hi'):
+            is_hi = True
+    except Exception:
+        pass
+
+    if is_hi:
+        if "namami gange" in lt or "namami ganga" in lt or "नमामि गंगे" in lt:
+            return (
+                "नमामि गंगे का उद्देश्य गंगा को दीर्घकाल तक स्वच्छ और अविरल बनाए रखना है। "
+                "मुख्य कार्य: (1) सीवरेज शोधन संयंत्र (STP) का निर्माण और उन्नयन, (2) औद्योगिक अपशिष्ट पर नियंत्रण, "
+                "(3) नदी सतह की सफाई और ठोस कचरा प्रबंधन, (4) जैव-विविधता संरक्षण और तटीय वृक्षारोपण, (5) जनभागीदारी और गंगा प्रहरी। "
+                "उदाहरण: कानपुर/वाराणसी में नए STP से लाखों लीटर असंशोधित जल सीधे नदी में जाने से रुका। "
+                "परिणाम: BOD/DO सूचक बेहतर हुए, डॉल्फ़िन/घड़ियाल आवास में सुधार दिखा, नदी तटीय सौंदर्यीकरण से पर्यटन बढ़ा। "
+                "आप चाहें तो मैं किसी एक शहर की परियोजना का संक्षिप्त केस-स्टडी भी बता सकता हूँ।"
+            )
+        if "ganga" in lt or "ganges" in lt or "गंगा" in lt:
+            return (
+                "गंगा हिमालय से निकलकर मैदानों से होती हुई बंगाल की खाड़ी तक जाती है। "
+                "यह कृषि, पेयजल, नौवहन और आस्था—सबकी केंद्र है। "
+                "चुनौतियाँ: शहरी/औद्योगिक अपशिष्ट, असंगठित ठोस कचरा, तटीय क्षरण, जल-प्रवाह में कमी। "
+                "समाधान: उपचारित सीवरेज का पुनः उपयोग, वर्षा-जल संचयन, जल-मित्र कृषि, तटीय हरियाली, और समुदाय-आधारित निगरानी। "
+                "क्या मैं किसी एक चुनौती (जैसे औद्योगिक प्रदूषण) पर गहराई से समझाऊँ?"
+            )
+        return (
+            f"{t} को आसान भाषा में विस्तार से समझें: परिभाषा, 3–4 मुख्य बिंदु, एक छोटा उदाहरण, और करने योग्य कदम। "
+            "बताइए किस हिस्से पर और गहराई चाहिए—कारण, प्रभाव, नीतियाँ या ज़मीनी उदाहरण?"
+        )
+
+    if "namami gange" in lt or "namami ganga" in lt:
+        return (
+            "Namami Gange aims for long-term river health: (1) STP build/upgrade, (2) industrial effluent control, (3) surface cleaning & solid waste, "
+            "(4) biodiversity & riparian plantations, (5) public participation (Ganga Praharis). Example: new STPs in Kanpur/Varanasi curbed untreated discharge. "
+            "Outcomes: improved BOD/DO, better habitats, cleaner ghats and tourism. I can share a short case study for any one city."
+        )
+    if "ganga" in lt or "ganges" in lt:
+        return (
+            "The Ganga runs from the Himalayas to the Bay of Bengal—vital for farms, drinking water, transport, and culture. "
+            "Challenges: urban/industrial discharge, unmanaged solid waste, bank erosion, reduced flows. "
+            "Solutions: treated reuse, rainwater harvesting, water-smart farming, riparian greens, community monitoring. "
+            "Want me to dive deeper into one challenge (e.g., industrial pollution)?"
+        )
+    return (
+        f"Here’s a deeper look at {t}: definition, 3–4 pillars, one example, and next steps. Tell me which part to expand further."
+    )
+
+def _is_expand_request_text(txt: str | None) -> bool:
+    s = (txt or '').strip().lower()
+    hi_keys = ["विस्तार", "आगे बताइए", "आगे बताओ", "आगे जारी", "जारी रखें", "और बताइए", "और बताओ", "कृपया आगे"]
+    en_keys = ["continue", "more", "elaborate", "expand", "go deeper", "next part"]
+    return any(k in s for k in hi_keys) or any(k in s for k in en_keys)
+
+def _count_prev_parts(history: list[dict] | None, lang: str | None) -> int:
+    if not history:
+        return 0
+    is_hi = str(lang or '').strip().lower().startswith('hi')
+    count = 0
+    try:
+        import re as _re
+        pat = _re.compile(r"भाग\s*(\d+)") if is_hi else _re.compile(r"Part\s*(\d+)", _re.I)
+        for m in history[-10:]:
+            if str(m.get('role','')).lower() != 'assistant':
+                continue
+            text = str(m.get('content') or '')
+            for num in pat.findall(text):
+                try:
+                    n = int(num)
+                    count = max(count, n)
+                except Exception:
+                    continue
+    except Exception:
+        return 0
+    return count
+
+def _last_non_expand_user(history: list[dict] | None) -> str | None:
+    if not history:
+        return None
+    for m in reversed(history[-8:]):
+        try:
+            if str(m.get('role','')).lower() == 'user':
+                txt = str(m.get('content') or '').strip()
+                if not _is_expand_request_text(txt):
+                    return txt
+        except Exception:
+            continue
+    return None
+
+def _detailed_parts(topic: str, lang: str | None) -> list[str]:
+    t = (topic or '').strip() or 'विषय'
+    is_hi = str(lang or '').strip().lower().startswith('hi')
+    if is_hi:
+        return [
+            f"परिचय ({t}): यह क्यों महत्वपूर्ण है, किसे लाभ होता है, और वर्तमान स्थिति क्या है।",
+            "मुख्य स्तंभ/पहल: 3–4 बिंदुओं में — क्या किया जा रहा है, कौन-सी संस्था जुड़ी है, और प्रगति कैसे मापते हैं।",
+            "उदाहरण + आगे के कदम: किसी एक शहर/क्षेत्र का छोटा केस‑स्टडी, फिर नागरिक के रूप में आप क्या कर सकते हैं।",
+        ]
+    else:
+        return [
+            f"Introduction to {t}: why it matters, who benefits, and the present landscape.",
+            "Core pillars/actions in 3–4 bullets: what is being done, by whom, and how progress is measured.",
+            "Example + next steps: a short city case study, then what a citizen can do today.",
+        ]
+
+def create_app():
+    app = Flask(__name__)
+
+    frontend_origin = os.environ.get('FRONTEND_URL') or env_vars.get('FRONTEND_URL')
+    if frontend_origin:
+        origins = [o.strip() for o in str(frontend_origin).split(',') if o.strip()]
+    else:
+        origins = [
+            'http://localhost:5173',
+            'http://127.0.0.1:5173',
+            'http://localhost:3000',
+            'https://cha-cha-chaudari.vercel.app',
+        ]
+    cors_kwargs = dict(
+        origins=origins,
+        allow_headers=["Content-Type", "Authorization"],
+        methods=["GET", "POST", "OPTIONS"],
+        max_age=86400,
+        supports_credentials=True,
+    )
+    CORS(app, **cors_kwargs)
+
+    try:
+        from auth import auth_bp
+        from chat_routes import chat_bp
+        app.register_blueprint(auth_bp)
+        app.register_blueprint(chat_bp)
+    except Exception as e:
+        logger.warning(f"Blueprint registration failed (possibly during import stage): {e}")
+
+    @app.route('/', methods=['GET'])
+    def root():
+        return jsonify({
+            'service': 'SmartGanga Mascot Backend',
+            'endpoints': ['/health', '/tts (POST)', '/stt (POST)', '/llama-chat (POST)']
+        })
+
+    # Lightweight local TTS/STT helpers
+    try:
+        from edge_local_tts_stt import tts_edge_sync, speech_recognition_once, tts_local_basic, list_local_basic_voices
+        _EDGE_LOCAL_AVAILABLE = True
+    except Exception:
+        _EDGE_LOCAL_AVAILABLE = False
+
+    def _is_english_hint(lang_hint: str | None) -> bool:
+        try:
+            lh = (lang_hint or '').strip().lower()
+            if lh:
+                return lh.startswith('en')
+            cfg = (env_vars.get('InputLanguage') or os.environ.get('InputLanguage') or '').strip().lower()
+            return cfg.startswith('en')
+        except Exception:
+            return False
+
+    @app.route('/tts', methods=['POST'])
+    def tts_endpoint():
+        data = request.get_json() or {}
+        text = data.get('text')
+        voice_id = data.get('voice') or None
+        description = data.get('description') or data.get('caption') or None
+        logger.info(f"/tts request received. voice_id={voice_id!r} desc_present={bool(description)}")
+        if not text:
+            return jsonify({'error': 'No text provided'}), 400
+        try:
+            lang = (data.get('lang') or data.get('locale') or '').strip()
+            rate = data.get('rate')
+            try:
+                rate = int(rate) if rate is not None else None
+            except Exception:
+                rate = None
+            style = (data.get('style') or '').strip()
+            seed = data.get('seed')
+            try:
+                seed = int(seed) if seed is not None else None
+            except Exception:
+                seed = None
+            if lang and not description:
+                l = lang.lower()
+                lang_map = {
+                    'hi': 'Speak in Hindi with a neutral Indian accent.',
+                    'hi-in': 'Speak in Hindi with a neutral Indian accent.',
+                    'en': 'Speak in English with an Indian English accent.',
+                    'en-in': 'Speak in English with an Indian English accent.',
+                }
+                base = lang_map.get(l, f"Speak in language: {lang}.")
+                if style:
+                    description = f"{base} Style: {style}."
+                else:
+                    description = base
+
+            tts_start = time.time()
+            use_fast = _EDGE_LOCAL_AVAILABLE and _is_english_hint(lang)
+            if voice_id:
+                vlow = str(voice_id).strip().lower()
+                if vlow.startswith('piper'):
+                    logger.info(f"Skipping fast-tts because voice_id '{voice_id}' appears to be engine-specific")
+                    use_fast = False
+            if use_fast:
+                try:
+                    out_path = tts_local_basic(text, voice=voice_id, rate=rate)
+                    mimetype = 'audio/wav'
+                    logger.info(f"Fast local-basic TTS used for lang={lang}, out={out_path}")
+                    try:
+                        size = os.path.getsize(out_path) if out_path and os.path.exists(out_path) else 0
+                    except Exception:
+                        size = 0
+                    if size < 2000:
+                        logger.warning('local-basic produced small file (%d bytes); attempting gTTS fallback', size)
+
+                        try:
+                            from gtts import gTTS  # type: ignore
+                            fb_out = unique_filename('speech', 'mp3')
+                            tts_obj = gTTS(text, lang='hi' if (lang or '').lower().startswith('hi') else 'en')
+                            tts_obj.save(fb_out)
+                            logger.info('gTTS fallback produced %s', fb_out)
+                            try:
+                                wav_fb = convert_to_wav_file(fb_out)
+                                return _safe_send_file(wav_fb, 'audio/wav', 'gtts', voice_id)
+                            except Exception:
+                                return _safe_send_file(fb_out, 'audio/mpeg', 'gtts', voice_id)
+                        except Exception:
+                            logger.exception('gTTS fallback failed after small local-basic file; trying edge-tts fallback')
+                            try:
+                                from edge_local_tts_stt import tts_edge_sync  # type: ignore
+                                fb_out = unique_filename('speech', 'mp3')
+                                tts_edge_sync(text, out_path=fb_out, voice=voice_id)
+                                logger.info('edge-tts fallback produced %s', fb_out)
+                                try:
+                                    wav_fb2 = convert_to_wav_file(fb_out)
+                                    return _safe_send_file(wav_fb2, 'audio/wav', 'edge-tts', voice_id)
+                                except Exception:
+                                    return _safe_send_file(fb_out, 'audio/mpeg', 'edge-tts', voice_id)
+                            except Exception:
+                                logger.exception('edge-tts fallback also failed; returning original local-basic output')
+                    return _safe_send_file(out_path, mimetype, 'local-basic', voice_id)
+                except Exception as e:
+                    logger.exception('fast local-basic TTS failed; falling back to configured engine')
+            lhl = (lang or '').strip().lower()
+            if lhl.startswith('hi'):
+                try:
+                    from gtts import gTTS  # type: ignore
+                    out_path = unique_filename('speech', 'mp3')
+                    tts_obj = gTTS(text, lang='hi')
+                    tts_obj.save(out_path)
+                    want_male = False
+                    try:
+                        req_gender = (data.get('gender') or data.get('sex') or '').strip().lower()
+                        if req_gender == 'male':
+                            want_male = True
+                    except Exception:
+                        want_male = False
+                    try:
+                        if not want_male and voice_id and 'male' in str(voice_id).lower():
+                            want_male = True
+                    except Exception:
+                        pass
+                    if want_male:
+                        try:
+                            from pydub import AudioSegment  # type: ignore
+                            aud = AudioSegment.from_file(out_path, format='mp3')
+                            factor = 0.85
+                            new_rate = int(aud.frame_rate * factor)
+                            deeper = aud._spawn(aud.raw_data, overrides={'frame_rate': new_rate})
+                            deeper = deeper.set_frame_rate(aud.frame_rate)
+                            deeper.export(out_path, format='mp3')
+                            logger.info('Applied pydub pitch-lowering to approximate male voice')
+                        except Exception:
+                            logger.exception('Failed to apply pitch-lowering postprocess; returning original gTTS audio')
+                    logger.info('Used gTTS fallback for Hindi synthesis (out=%s)', out_path)
+                    try:
+                        wav_path = convert_to_wav_file(out_path)
+                        return _safe_send_file(wav_path, 'audio/wav', 'gtts', voice_id)
+                    except Exception:
+                        return _safe_send_file(out_path, 'audio/mpeg', 'gtts', voice_id)
+                except Exception:
+                    logger.exception('gTTS fallback for Hindi failed; trying edge-tts fallback')
+                    try:
+                        from edge_local_tts_stt import tts_edge_sync  # type: ignore
+                        fb_out = unique_filename('speech', 'mp3')
+                        tts_edge_sync(text, out_path=fb_out, voice=voice_id)
+                        logger.info('edge-tts fallback produced %s', fb_out)
+                        try:
+                            wav_fb = convert_to_wav_file(fb_out)
+                            return _safe_send_file(wav_fb, 'audio/wav', 'edge-tts', voice_id)
+                        except Exception:
+                            return _safe_send_file(fb_out, 'audio/mpeg', 'edge-tts', voice_id)
+                    except Exception:
+                        logger.exception('edge-tts fallback for Hindi also failed; returning bundled sample if available')
+                        sample = os.path.join(os.getcwd(), 'frontend', 'public', 'assets', 'chacha-cahaudhary', 'Greeting.wav')
+                        if os.path.exists(sample):
+                            resp = send_file(sample, mimetype='audio/wav', as_attachment=False)
+                            try:
+                                resp.headers['X-TTS-Engine'] = 'none'
+                                resp.headers['X-TTS-Fallback'] = 'sample-greeting'
+                                resp.headers['X-Generated-File-Size'] = '0'
+                            except Exception:
+                                pass
+                            return resp
+            out_path = generate_tts_file(text, voice_id=voice_id)
+            tts_latency_ms = int((time.time() - tts_start) * 1000)
+            logger.info(f"TTS generation finished in {tts_latency_ms}ms (engine={TTS_ENGINE}, voice={voice_id}, lang={lang})")
+            mimetype = 'audio/wav'
+            logger.info('Returning generated TTS file: %s', out_path)
+            return _safe_send_file(out_path, mimetype, TTS_ENGINE, voice_id)
+        except Exception as e:
+            logger.exception('TTS endpoint error')
+            return jsonify({'error': 'TTS generation failed', 'details': str(e)}), 500
+
+    @app.route('/fast-tts', methods=['POST'])
+    def fast_tts():
+        if not _EDGE_LOCAL_AVAILABLE:
+            return jsonify({'error': 'fast-tts helper not available'}), 503
+        data = request.get_json() or {}
+        text = data.get('text')
+        voice = data.get('voice') or None
+        rate = data.get('rate')
+        try:
+            rate = int(rate) if rate is not None else None
+        except Exception:
+            rate = None
+        if not text:
+            return jsonify({'error': 'No text provided'}), 400
+        try:
+            out = tts_local_basic(text, out_path=None, voice=voice, rate=rate)
+            logger.info('fast-tts produced file: %s', out)
+            try:
+                size = os.path.getsize(out) if out and os.path.exists(out) else 0
+            except Exception:
+                size = 0
+            if size < 2000:
+                logger.warning('fast-tts produced small file (%d bytes); attempting gTTS fallback', size)
+
+                try:
+                    from gtts import gTTS  # type: ignore
+                    fb_out = unique_filename('speech', 'mp3')
+                    tts_obj = gTTS(text, lang='en' if not (voice or '').lower().startswith('hi') else 'hi')
+                    tts_obj.save(fb_out)
+                    try:
+                        wav_fb = convert_to_wav_file(fb_out)
+                        return _safe_send_file(wav_fb, 'audio/wav', 'gtts', voice)
+                    except Exception:
+                        return _safe_send_file(fb_out, 'audio/mpeg', 'gtts', voice)
+                except Exception:
+                    logger.exception('gTTS fallback failed for fast-tts; trying edge-tts fallback')
+                    try:
+                        from edge_local_tts_stt import tts_edge_sync  # type: ignore
+                        fb_out = unique_filename('speech', 'mp3')
+                        tts_edge_sync(text, out_path=fb_out, voice=voice)
+                        try:
+                            wav_fb_e = convert_to_wav_file(fb_out)
+                            return _safe_send_file(wav_fb_e, 'audio/wav', 'edge-tts', voice)
+                        except Exception:
+                            return _safe_send_file(fb_out, 'audio/mpeg', 'edge-tts', voice)
+                    except Exception:
+                        logger.exception('edge-tts fallback failed for fast-tts; returning original')
+            return _safe_send_file(out, 'audio/wav', 'local-basic', voice)
+        except Exception as e:
+            logger.exception('fast-tts failed')
+            return jsonify({'error': 'fast-tts failed', 'details': str(e)}), 500
+
+    @app.route('/fast-stt', methods=['GET'])
+    def fast_stt():
+        if not _EDGE_LOCAL_AVAILABLE:
+            return jsonify({'error': 'fast-stt helper not available'}), 503
+        try:
+            text = speech_recognition_once()
+            return jsonify({'result': text})
+        except Exception as e:
+            logger.exception('fast-stt failed')
+            return jsonify({'error': 'fast-stt failed', 'details': str(e)}), 500
+
+    @app.route('/voices', methods=['GET'])
+    def voices_endpoint():
+        try:
+            piper_list = []
+            try:
+                piper_list = get_piper_voices() or []
+            except Exception:
+                piper_list = []
+            if piper_list:
+                items = []
+                for v in piper_list:
+                    try:
+                        items.append({
+                            'id': v.get('id') or v.get('shortName'),
+                            'shortName': v.get('shortName') or v.get('id'),
+                            'locale': v.get('locale') or None,
+                        })
+                    except Exception:
+                        continue
+                return jsonify({ 'count': len(items), 'voices': items, 'engine': 'piper' })
+            items = list_local_basic_voices()
+            return jsonify({ 'count': len(items), 'voices': items, 'engine': 'local-basic' })
+        except Exception as e:
+            return jsonify({ 'error': 'failed to list voices', 'details': str(e) }), 500
+
+    @app.route('/tts-diagnostic', methods=['GET'])
+    def tts_diagnostic():
+        try:
+            info = {
+                'piper_helper_imported': False,
+                'piper_path': PIPER_PATH,
+                'piper_voices_dir': PIPER_VOICES_DIR,
+                'piper_voices_count': 0,
+                'piper_voices_sample': [],
+            }
+            try:
+                voices = get_piper_voices(force_refresh=True) or []
+                info['piper_helper_imported'] = True
+                info['piper_voices_count'] = len(voices)
+                info['piper_voices_sample'] = [ { 'id': v.get('id'), 'shortName': v.get('shortName'), 'locale': v.get('locale') } for v in voices[:8] ]
+            except Exception as e:
+                info['piper_helper_imported'] = False
+                info['piper_error'] = str(e)
+            try:
+                from pydub import AudioSegment  # type: ignore
+                info['pydub_available'] = True
+                try:
+                    ff = AudioSegment.converter
+                    info['ffmpeg_path'] = ff
+                    info['ffmpeg_available'] = bool(ff and os.path.exists(ff))
+                except Exception:
+                    info['ffmpeg_path'] = None
+                    info['ffmpeg_available'] = False
+            except Exception as e:
+                info['pydub_available'] = False
+                info['pydub_error'] = str(e)
+            try:
+                info['piper_path_exists'] = os.path.isabs(PIPER_PATH) and os.path.exists(PIPER_PATH)
+            except Exception:
+                info['piper_path_exists'] = False
+            return jsonify(info)
+        except Exception as e:
+            return jsonify({'error': 'diagnostic failed', 'details': str(e)}), 500
+
+    @app.route('/generated_audio/<path:filename>', methods=['GET'])
+    def get_generated_audio(filename: str):
+        try:
+            path = os.path.join(DATA_DIR, filename)
+            if not os.path.isfile(path):
+                return jsonify({'error': 'file not found'}), 404
+            return send_file(path, mimetype='audio/wav', as_attachment=False)
+        except Exception as e:
+            return jsonify({'error': 'failed to serve audio', 'details': str(e)}), 500
+
+    @app.route('/stt', methods=['POST'])
+    def stt_endpoint():
+        data = request.get_json() or {}
+        text = data.get('text')
+        if not text:
+            if _EDGE_LOCAL_AVAILABLE and _is_english_hint(None):
+                try:
+                    captured = speech_recognition_once()
+                    return jsonify({'result': captured})
+                except Exception as e:
+                    logger.exception('fast-stt capture failed')
+                    return jsonify({'error': 'fast-stt failed', 'details': str(e)}), 500
+            return jsonify({'error': 'No text provided'}), 400
+        return jsonify({'result': text})
+
+    @app.route('/health', methods=['GET'])
+    def health():
+        return jsonify({
+            'status': 'ok',
+            'rag_ready': embedder is not None and index is not None and chunks is not None,
+            'llm_ready': tokenizer is not None and llm is not None,
+            'llm_device': _LLM_DEVICE,
+            'tts_engine': TTS_ENGINE,
+            'tts_ready': _tts_ready(),
+            'tts_device': None,
+            'db_mode': 'memory' if _USING_IN_MEMORY_DB else 'mongo'
+        })
+
+    @app.route('/llm-diagnostic', methods=['GET'])
+    def llm_diagnostic():
+        info = {
+            'transformers_available': _TRANSFORMERS_AVAILABLE,
+            'llm_ready': tokenizer is not None and llm is not None,
+            'llm_device': _LLM_DEVICE,
+            'env': {
+                'SKIP_LLM_LOAD': os.environ.get('SKIP_LLM_LOAD') or env_vars.get('SKIP_LLM_LOAD'),
+                'LLAMA_FORCE_FALLBACK': os.environ.get('LLAMA_FORCE_FALLBACK'),
+                'LLAMA_USE_BNB': os.environ.get('LLAMA_USE_BNB') or env_vars.get('LLAMA_USE_BNB'),
+                'MODEL_REPO': os.environ.get('MODEL_REPO') or env_vars.get('MODEL_REPO'),
+                'MODEL_REPO_LOCAL_ONLY': os.environ.get('MODEL_REPO_LOCAL_ONLY') or env_vars.get('MODEL_REPO_LOCAL_ONLY'),
+                'HF_HUB_OFFLINE': os.environ.get('HF_HUB_OFFLINE'),
+            }
+        }
+        try:
+            repo_hint = (os.environ.get('MODEL_REPO') or env_vars.get('MODEL_REPO') or os.path.join(os.getcwd(), 'models', 'phi-3-mini-4k-instruct'))
+            repo_path = None
+            if isinstance(repo_hint, str) and (repo_hint.startswith('.') or os.path.isabs(repo_hint) or os.path.sep in repo_hint):
+                cand = os.path.abspath(repo_hint)
+                if os.path.isdir(cand):
+                    repo_path = cand
+            info['resolved_repo_path'] = repo_path
+            if repo_path:
+                try:
+                    files = os.listdir(repo_path)
+                    key_files = ['config.json', 'tokenizer.json', 'tokenizer.model', 'model.safetensors.index.json', 'pytorch_model.bin.index.json']
+                    present = {kf: (kf in files) for kf in key_files}
+                    info['repo_files_present'] = present
+                    info['repo_file_count'] = len(files)
+                except Exception as e:
+                    info['repo_list_error'] = str(e)
+        except Exception as e:
+            info['repo_resolve_error'] = str(e)
+
+        try:
+            import torch as _torch  # type: ignore
+            info['torch'] = {
+                'version': getattr(_torch, '__version__', None),
+                'cuda_available': bool(_torch.cuda.is_available()),
+                'cuda_version': getattr(getattr(_torch, 'version', None), 'cuda', None),
+            }
+        except Exception as e:
+            info['torch_error'] = str(e)
+
+        try:
+            import bitsandbytes as _bnb  # type: ignore
+            info['bitsandbytes'] = {'available': True, 'version': getattr(_bnb, '__version__', None)}
+        except Exception as e:
+            info['bitsandbytes'] = {'available': False, 'error': str(e)}
+
+        return jsonify(info)
+
+    @app.route('/llama-chat', methods=['GET', 'POST', 'OPTIONS'])
+    def llama_chat():
+        req_start = time.time()
+        logging.debug("Request received at /llama-chat")
+        if request.method == 'OPTIONS':
+            return ("", 200)
+        if request.method == 'GET':
+            return jsonify({
+                'error': 'Use POST with JSON payload {"prompt": "..."}',
+                'example': {'prompt': 'Hello'}
+            }), 405
+        if embedder is None or index is None or chunks is None:
+            allow_fallback_without_rag = os.environ.get('LLAMA_ALLOW_FALLBACK_WITHOUT_RAG', '')
+            if allow_fallback_without_rag.strip().lower() in ('1', 'true', 'yes'):
+                logger.info('RAG components not initialized but LLAMA_ALLOW_FALLBACK_WITHOUT_RAG set — proceeding in fallback-only mode')
+            else:
+                return jsonify({"error": "RAG components not initialized"}), 503
+        model_missing = tokenizer is None or llm is None
+        try:
+            data = request.get_json() or {}
+            prompt = data.get("prompt")
+            lang_hint = (data.get('lang') or data.get('locale') or '').strip()
+            force_fallback = False
+            fb_req = data.get('fallback')
+            if isinstance(fb_req, bool):
+                force_fallback = fb_req
+            elif isinstance(fb_req, str):
+                force_fallback = fb_req.strip().lower() in ("1", "true", "yes")
+            if os.environ.get('LLAMA_FORCE_FALLBACK', '').lower() in ("1", "true", "yes"):
+                force_fallback = True
+            age_group = (
+                data.get('ageGroup')
+                or data.get('agegroup')
+                or data.get('age_group')
+                or data.get('AgeGroup')
+            )
+            user_name = (
+                data.get('name')
+                or data.get('Name')
+                or data.get('username')
+                or data.get('user_name')
+            )
+            if isinstance(age_group, str):
+                raw_age = age_group.strip()
+                age_group = raw_age.lower()
+                if age_group in ('child', 'children', 'kids', 'kiddo'):
+                    age_group = 'kid'
+                else:
+                    # Treat numeric ages up to 12 as kid
+                    try:
+                        n = int(raw_age)
+                        if n <= 12:
+                            age_group = 'kid'
+                    except Exception:
+                        pass
+            if isinstance(user_name, str):
+                user_name = user_name.strip()
+            if not prompt:
+                return jsonify({"error": "No prompt provided"}), 400
+
+            # Strip any explicit chat-log style role tags from the prompt
+            try:
+                for marker in ("<User>:", "<Assistant>:", "User:", "Assistant:"):
+                    prompt = prompt.replace(marker, "")
+            except Exception:
+                pass
+
+            logging.debug(f"Prompt received: {prompt}")
+            history = data.get('history')
+            if not isinstance(history, list):
+                history = []
+            history = history[-12:]
+
+            kid_greeting_story = False
+            simple = (prompt or '').strip().lower()
+            is_welcome = False
+            try:
+                wflag = data.get('welcome') or data.get('isWelcome') or data.get('is_welcome')
+                if isinstance(wflag, bool):
+                    is_welcome = wflag
+            except Exception:
+                is_welcome = False
+            if not is_welcome:
+                def _norm(s: str) -> str:
+                    return ''.join(ch for ch in s.lower() if ch.isalnum() or ch.isspace()).strip()
+                is_welcome = _norm(simple) == _norm(WELCOME_TRIGGER_TEXT)
+            if is_welcome:
+                result = WELCOME_MESSAGE
+                audio_url = None
+                if WELCOME_AUTOTTS:
+                    try:
+                        out_path = unique_filename('speech', 'wav')
+                        tts_text = sanitize_text_for_tts(result)
+                        if 'tts_local_basic' in globals() and _EDGE_LOCAL_AVAILABLE:
+                            wav_path = tts_local_basic(tts_text, out_path=out_path, voice=data.get('voice') or None)
+                        else:
+                            wav_path = generate_tts_file(tts_text)
+                        filename = os.path.basename(wav_path)
+                        audio_url = f"/generated_audio/{filename}"
+                    except Exception:
+                        logger.exception('Welcome TTS failed')
+                latency_ms = int((time.time() - req_start) * 1000)
+                resp = {
+                    "result": result,
+                    "retrieved_count": 0,
+                    "rag_score": None,
+                    "source": "general",
+                    "temperature": 0.0,
+                    "top_p": 1.0,
+                    "used_max_new_tokens": 0,
+                    "latency_ms": latency_ms,
+                    "wants_long": False,
+                    "llm_used": False,
+                }
+                if audio_url:
+                    resp['audio_url'] = audio_url
+                return jsonify(resp)
+
+            if simple in ("hi", "hello", "hey", "yo", "hola", "namaste"):
+                if (age_group or '').strip().lower() == 'kid' and not (force_fallback or model_missing):
+                    kid_greeting_story = True
+                else:
+                    base = _conversational_fallback(prompt, user_name, age_group, history, lang_hint)
+                    latency_ms = int((time.time() - req_start) * 1000)
+                    return jsonify({
+                        "result": base,
+                        "retrieved_count": 0,
+                        "temperature": 0.0,
+                        "top_p": 1.0,
+                        "used_max_new_tokens": 0,
+                        "latency_ms": latency_ms,
+                        "wants_long": False,
+                    })
+            query_emb = embedder.encode([prompt])
+            query_arr = np.array(query_emb, dtype=np.float32)
+            if query_arr.ndim == 1:
+                query_arr = np.expand_dims(query_arr, 0)
+            D, I = index.search(query_arr, k=3)
+            retrieved_chunks = [chunks[i] for i in I[0] if 0 <= i < len(chunks)]
+
+            rag_score = None
+            try:
+                if D is not None and len(D) > 0 and len(D[0]) > 0:
+                    d0 = float(D[0][0])
+                    if 0.0 <= d0 <= 1.0:
+                        rag_score = max(0.0, min(1.0, 1.0 - d0))
+                    elif 0.0 <= d0 <= 2.0:
+                        rag_score = max(0.0, min(1.0, 1.0 - (d0 / 2.0)))
+            except Exception:
+                rag_score = None
+
+            rag_reliable = bool(retrieved_chunks) and (rag_score is not None and rag_score >= 0.70)
+            context = "\n\n---\n\n".join(retrieved_chunks) if retrieved_chunks else ""
+
+            max_context_chars = int(os.environ.get("RAG_CONTEXT_CHARS", "1200"))
+            if len(context) > max_context_chars:
+                context = context[:max_context_chars] + "\n[context truncated]"
+
+            persona_lines = []
+            if user_name:
+                persona_lines.append(f"The user's name is {user_name}.")
+            persona_lines.append("Speak as ChaCha in first person (I/me) with a warm, friendly tone—natural, concise, and human.")
+            use_kid_story = False
+            if (age_group == 'kid'):
+                lt_prompt = (prompt or '').strip().lower()
+                if ('kid_greeting_story' in locals() and kid_greeting_story) or any(
+                    kw in lt_prompt for kw in ('why', 'how', 'what is', 'tell me', 'story')
+                ) or not rag_reliable:
+                    use_kid_story = True
+                if use_kid_story:
+                    persona_lines.append("Use simple, positive language and create a short story example appropriate for kids.")
+                    persona_lines.append("Structure: briefly explain the idea, then tell a small story (setting → action → outcome), and end with one friendly question.")
+                    persona_lines.append("Keep it ~80–140 words, vivid but simple; prefer familiar Indian names/places and Ganga context when it fits naturally.")
+                    persona_lines.append("Avoid headings and lists; write in 3–5 short paragraphs so it’s easy to follow.")
+                else:
+                    persona_lines.append("Use simple, positive language; explain in 1–2 short paragraphs with one concrete example. Avoid lists unless asked.")
+            elif age_group == 'teen':
+                persona_lines.append("Keep it concise, friendly, and practical — one or two short paragraphs.")
+            else:
+                persona_lines.append("Be concise and conversational; prefer short paragraphs (2–4). Avoid lists unless explicitly asked.")
+            persona_lines.append(
+                "Only ask a follow‑up question if the user clearly asks for more detail or says they want to continue; otherwise, just answer clearly without asking new questions."
+            )
+            persona_lines.append("Use light empathy and clarifying questions only when the user’s goal is ambiguous.")
+            persona_lines.append(
+                "Do not invent or assume what the user said; never write new lines starting with 'User:' or answer imaginary questions."
+            )
+            persona_lines.append(
+                "If the user says ‘continue’, ‘go on’, or answers yes/no, continue naturally from the last assistant reply without restarting or repeating, and do not create extra Q&A turns by yourself."
+            )
+            persona_lines.append("Do not include role labels or markdown headings in the reply.")
+            try:
+                _pl = (prompt or '').strip().lower()
+                if ('कहानी' in (prompt or '')) or ('story' in _pl):
+                    if lang_hint and str(lang_hint).strip().lower().startswith('hi'):
+                        persona_lines.append("If the user asks for a story, write a short (120–180 words) engaging story in Hindi (Devanagari). Keep it simple and vivid, with a beginning–middle–end, and connect naturally to the Ganga/clean river theme if appropriate.")
+                    else:
+                        persona_lines.append("If the user asks for a story, write a short (120–180 words) engaging story. Keep it simple and vivid, with a beginning–middle–end, and connect naturally to the Ganga/clean river theme if appropriate.")
+            except Exception:
+                pass
+            try:
+                if lang_hint and str(lang_hint).strip().lower().startswith('hi'):
+                    persona_lines.append("Respond entirely in Hindi using Devanagari script. Use natural, simple phrasing; avoid mixing English except proper nouns. When technical terms appear, explain them briefly in Hindi. If the provided context is in English, translate it faithfully to Hindi while answering.")
+                elif lang_hint:
+                    if str(lang_hint).strip().lower().startswith('en'):
+                        persona_lines.append("Respond in English (Indian English tone).")
+            except Exception:
+                pass
+            if rag_reliable:
+                persona_lines.append("Use the context below as your primary source. If you add general knowledge, keep it minimal and integrated naturally.")
+            else:
+                persona_lines.append("Context appears weak or missing. Answer from general knowledge clearly and helpfully without apologies or disclaimers.")
+
+            system_preface = "\n".join(persona_lines)
+
+            convo_lines = []
+            for m in history:
+                try:
+                    role = str(m.get('role', '')).strip().lower()
+                    content = str(m.get('content', '')).strip()
+                    if not content:
+                        continue
+                    if role == 'user':
+                        convo_lines.append(f"User: {content}")
+                    elif role == 'assistant':
+                        convo_lines.append(f"Assistant: {content}")
+                except Exception:
+                    continue
+            conversation_block = "\n".join(convo_lines)
+
+            full_prompt = (
+                "<SYS>\n"
+                + system_preface
+                + "\nNever mention or quote the <SYS>, <CONTEXT>, or <CONV> sections.\n</SYS>\n\n"
+                + "<CONV>\n" + (conversation_block or "") + "\n</CONV>\n\n"
+                + "<CONTEXT>\n" + (context or "") + "\n</CONTEXT>\n\n"
+                + "User: " + prompt + "\nAssistant:"
+            )
+            if force_fallback or model_missing:
+                logger.info(f"/llama-chat: using fallback (force={force_fallback}, model_missing={model_missing}, age_group={age_group})")
+                result = None
+                if retrieved_chunks:
+                    try:
+                        top = (retrieved_chunks[0] or '').strip()
+                        readable = _is_chunk_readable(top)
+                        if age_group == 'kid':
+                            if rag_reliable and readable:
+                                if lang_hint and str(lang_hint).strip().lower().startswith('hi'):
+                                    result = (
+                                        "मैं इसे एक छोटे उदाहरण या कहानी से समझा सकता हूँ — क्या आप चाहेंगे?"
+                                    )
+                                else:
+                                    snippet = _clean_snippet(top)
+                                    result = (
+                                        f"Based on our local notes: {snippet}\n\nWould you like a short story or a simple example next?"
+                                    )
+                            else:
+                                result = _kid_story_fallback(prompt, lang_hint)
+                        else:
+                            if rag_reliable and readable:
+                                snippet = _clean_snippet(top)
+                                if lang_hint and str(lang_hint).strip().lower().startswith('hi'):
+                                    result = ("हमारी स्थानीय नोट्स के आधार पर जानकारी उपलब्ध है। क्या मैं इसे आगे बढ़ाकर एक छोटा उदाहरण दूँ?")
+                                else:
+                                    result = (
+                                        f"Based on our local notes: {snippet}\n\nWant me to expand or give a quick example?"
+                                    )
+                            elif readable:
+                                snippet = _clean_snippet(top)
+                                if lang_hint and str(lang_hint).strip().lower().startswith('hi'):
+                                    result = (
+                                        "यह बात मेरी स्थानीय नोट्स में साफ़ नहीं मिली। चाहें तो मैं सामान्य रूप से संक्षेप में समझा दूँ?"
+                                    )
+                                else:
+                                    result = (
+                                        "I couldn't find this clearly in my local notes; here’s what I do have: "
+                                        f"{snippet}\n\nIf helpful, I can give a broader general explanation."
+                                    )
+                            else:
+                                result = None
+                    except Exception:
+                        result = None
+                if not result:
+                    if age_group == 'kid':
+                        result = _kid_story_fallback(prompt, lang_hint)
+                    else:
+                        result = _conversational_fallback(prompt, user_name, age_group, history, lang_hint)
+                latency_ms = int((time.time() - req_start) * 1000)
+                return jsonify({
+                    "result": result,
+                    "retrieved_count": len(retrieved_chunks),
+                    "rag_score": float(rag_score) if rag_score is not None else None,
+                    "source": "rag" if rag_reliable else "general",
+                    "temperature": 0.0,
+                    "top_p": 1.0,
+                    "used_max_new_tokens": 0,
+                    "latency_ms": latency_ms,
+                    "wants_long": False,
+                })
+
+            speed_preset = (os.environ.get('LLAMA_SPEED_PRESET') or env_vars.get('LLAMA_SPEED_PRESET') or 'balanced').strip().lower()
+            try:
+                req_speed = (data.get('speed') or data.get('speed_preset') or '').strip().lower()
+                if req_speed in ('fast', 'balanced', 'quality'):
+                    speed_preset = req_speed
+            except Exception:
+                pass
+            if speed_preset not in ('fast', 'balanced', 'quality'):
+                speed_preset = 'balanced'
+
+            temperature = 0.2
+            top_p = 0.9
+            try:
+                if lang_hint and str(lang_hint).strip().lower().startswith('hi'):
+                    temperature = max(temperature, 0.45)
+            except Exception:
+                pass
+
+            if _LLM_DEVICE == 'cpu':
+                preset_tokens = {'fast': 48, 'balanced': 72, 'quality': 104}
+                kid_tokens_map = {'fast': 100, 'balanced': 140, 'quality': 180}
+                teen_tokens_map = {'fast': 60, 'balanced': 80, 'quality': 100}
+                default_max_time = {'fast': 4.0, 'balanced': 6.0, 'quality': 8.0}[speed_preset]
+            else:
+                preset_tokens = {'fast': 128, 'balanced': 196, 'quality': 320}
+                kid_tokens_map = {'fast': 200, 'balanced': 300, 'quality': 420}
+                teen_tokens_map = {'fast': 110, 'balanced': 160, 'quality': 220}
+                default_max_time = {'fast': 8.0, 'balanced': 14.0, 'quality': 22.0}[speed_preset]
+
+            default_tokens = preset_tokens[speed_preset]
+            max_new_tokens = int(os.environ.get('LLAMA_MAX_NEW_TOKENS', str(default_tokens)))
+
+            try:
+                if (lang_hint and str(lang_hint).strip().lower().startswith('hi')) or ('कहानी' in (prompt or '')) or ('story' in (prompt or '').lower()):
+                    max_new_tokens = int(max_new_tokens * 1.25)
+            except Exception:
+                pass
+
+            try:
+                if lang_hint and str(lang_hint).strip().lower().startswith('hi'):
+                    temperature = max(temperature, 0.45)
+            except Exception:
+                pass
+            if age_group == 'kid':
+                temperature = 0.7
+                kid_tokens = kid_tokens_map[speed_preset]
+                max_new_tokens = min(max(max_new_tokens, kid_tokens), kid_tokens_map['quality'])
+            elif age_group == 'teen':
+                temperature = 0.4
+                teen_tokens = teen_tokens_map[speed_preset]
+                max_new_tokens = min(max_new_tokens, teen_tokens)
+
+            max_input_tokens = int(os.environ.get("LLAMA_MAX_INPUT_TOKENS", "1024"))
+
+            try:
+                import torch
+                no_grad_ctx = torch.inference_mode
+            except Exception:
+                class _NoopCtx:
+                    def __enter__(self):
+                        return None
+                    def __exit__(self, exc_type, exc, tb):
+                        return False
+                def no_grad_ctx():
+                    return _NoopCtx()
+
+            inputs = tokenizer(
+                full_prompt,
+                return_tensors="pt",
+                truncation=True,
+                max_length=max_input_tokens,
+            ).to(llm.device)
+
+            do_sample = False if _LLM_DEVICE == 'cpu' else True
+            if (temperature and float(temperature) > 0.0) or (top_p and float(top_p) < 1.0):
+                if _LLM_DEVICE == 'cpu':
+                    logger.info('Enabling sampling on CPU because temperature/top_p request sampling (temperature=%s top_p=%s)', temperature, top_p)
+                do_sample = True
+
+            generate_kwargs = dict(
+                max_new_tokens=max_new_tokens,
+                do_sample=do_sample,
+                use_cache=False if _LLM_DEVICE == 'cpu' else True,
+            )
+            if do_sample:
+                generate_kwargs.update(temperature=temperature, top_p=top_p)
+            max_time = float(os.environ.get('LLAMA_MAX_TIME', str(default_max_time)))
+            if max_time > 0:
+                generate_kwargs['max_time'] = max_time
+
+            try:
+                with no_grad_ctx():
+                    output = llm.generate(**inputs, **generate_kwargs)
+                input_len = int(inputs["input_ids"].shape[1])
+                gen_tokens = output[0][input_len:]
+                result = tokenizer.decode(gen_tokens, skip_special_tokens=True).strip()
+                try:
+                    import re as _re
+                    lines = [
+                        ln
+                        for ln in result.split("\n")
+                        if not _re.search(
+                            r"^(System instructions:|<SYS>|</SYS>|<CONTEXT>|</CONTEXT>|<CONV>|</CONV>|Instruction\b|You are now role-?playing)",
+                            ln.strip(),
+                            _re.I,
+                        )
+                    ]
+                    if lines and lines[0].strip().lower().startswith('assistant:'):
+                        lines[0] = lines[0].split(':', 1)[1].strip()
+                    # Drop any trailing hallucinated Q&A style turns
+                    cleaned = []
+                    for ln in lines:
+                        if _re.match(r"^(User:|<User>:|Assistant:|<Assistant>:)", ln.strip(), _re.I):
+                            break
+                        cleaned.append(ln)
+                    result = "\n".join(cleaned).strip()
+                except Exception:
+                    pass
+                try:
+                    gen_token_count = int(gen_tokens.shape[0]) if hasattr(gen_tokens, 'shape') else None
+                except Exception:
+                    gen_token_count = None
+                truncated_candidate = False
+                try:
+                    if gen_token_count is not None and max_new_tokens and gen_token_count >= max_new_tokens - 2:
+                        truncated_candidate = True
+                    elif result and result[-1] not in ('.', '!', '?') and len(result) > 40:
+                        truncated_candidate = True
+                except Exception:
+                    truncated_candidate = False
+                if truncated_candidate and not (force_fallback or model_missing):
+                    try:
+                        logger.info('Generation likely truncated (used %s tokens of %s); attempting one continuation', gen_token_count, max_new_tokens)
+                        continuation_system = (
+                            "Continue the previous assistant reply smoothly. "
+                            "Do not repeat any text already said. Do not add labels or headings. "
+                            "Finish the thought with complete sentences."
+                        )
+                        continuation_text = (
+                            f"{continuation_system}\n\nPrevious reply:\n{result}\n\nContinue:\n"
+                        )
+                        inputs2 = tokenizer(
+                            continuation_text,
+                            return_tensors="pt",
+                            truncation=True,
+                            max_length=max_input_tokens,
+                        ).to(llm.device)
+                        extra_kwargs = dict(generate_kwargs)
+                        extra_budget = min(max(max_new_tokens * 2, 160), 512)
+                        extra_kwargs['max_new_tokens'] = extra_budget
+                        if max_time:
+                            extra_kwargs['max_time'] = float(max_time) * 1.5
+                        with no_grad_ctx():
+                            out2 = llm.generate(**inputs2, **extra_kwargs)
+                        input_len2 = int(inputs2["input_ids"].shape[1])
+                        gen2 = out2[0][input_len2:]
+                        cont_text = tokenizer.decode(gen2, skip_special_tokens=True).strip()
+                        if cont_text:
+                            result = (result + " " + cont_text).strip()
+                            logger.info('Continuation appended (len now=%d)', len(result))
+                    except Exception:
+                        logger.exception('Continuation generation failed; keeping original truncated result')
+                if not result:
+                    try:
+                        full_decoded = tokenizer.decode(output[0], skip_special_tokens=True).strip()
+                    except Exception:
+                        full_decoded = None
+                    try:
+                        out_tokens = int(output[0].shape[1])
+                    except Exception:
+                        out_tokens = None
+                    logger.warning('Empty generation from LLM: input_len=%s output_tokens=%s full_decoded_preview=%r', input_len, out_tokens, (full_decoded or '')[:300])
+                    result = _conversational_fallback(prompt, user_name, age_group, history, lang_hint)
+                    logger.info('Applied conversational fallback due to empty generation; fallback_preview=%s', (result or '')[:200])
+            except Exception as gen_err:
+                logger.error(f"LLM generation failed, using fallback: {gen_err}")
+                result = _conversational_fallback(prompt, user_name, age_group, history, lang_hint)
+            try:
+                if lang_hint and str(lang_hint).strip().lower().startswith('hi') and _is_mostly_english(result or ''):
+                    translated = _translate_with_llm_to_hindi(result or '')
+                    if translated:
+                        result = translated
+            except Exception:
+                pass
+            try:
+                preview = (result or '')[:200].replace('\n', ' ')
+            except Exception:
+                preview = '<unprintable>'
+            logger.info('Generated response (len=%d) preview: %s', len(result or ''), preview)
+            latency_ms = int((time.time() - req_start) * 1000)
+
+            want_tts = False
+            try:
+                env_autotts = os.environ.get('LLAMA_AUTOTTS', '').strip().lower()
+                if env_autotts in ('1', 'true', 'yes'):
+                    want_tts = True
+                req_tts = data.get('tts')
+                if isinstance(req_tts, bool):
+                    want_tts = req_tts
+                elif isinstance(req_tts, str):
+                    if req_tts.strip().lower() in ('1', 'true', 'yes'):
+                        want_tts = True
+            except Exception:
+                want_tts = False
+
+            audio_url = None
+            tts_error = None
+            if want_tts:
+                try:
+                    voice_id = data.get('voice') or data.get('ttsVoice') or None
+                    out_path = unique_filename('speech', 'wav')
+                    tts_text = sanitize_text_for_tts(result)
+                    if 'tts_local_basic' in globals() and _EDGE_LOCAL_AVAILABLE:
+                        wav_path = tts_local_basic(tts_text, out_path=out_path, voice=voice_id)
+                    else:
+                        wav_path = generate_tts_file(tts_text, voice_id=voice_id)
+                    filename = os.path.basename(wav_path)
+                    audio_url = f"/generated_audio/{filename}"
+                except Exception as tte:
+                    logger.exception('Failed to generate TTS for assistant reply')
+                    tts_error = str(tte)
+
+            resp = {
+                "result": result,
+                "retrieved_count": len(retrieved_chunks),
+                "rag_score": float(rag_score) if rag_score is not None else None,
+                "source": "rag" if rag_reliable else "general",
+                "temperature": round(float(temperature), 2),
+                "top_p": round(float(top_p), 2),
+                "used_max_new_tokens": int(max_new_tokens),
+                "latency_ms": latency_ms,
+                "wants_long": False,
+                "llm_used": not (force_fallback or model_missing),
+            }
+            if audio_url:
+                resp['audio_url'] = audio_url
+            if tts_error:
+                resp['tts_error'] = tts_error
+            return jsonify(resp)
+        except Exception as e:
+            logging.error(f"Error in /llama-chat: {e}")
+            return jsonify({"error": str(e)}), 500
+
+    @app.route('/llama-chat-stream', methods=['POST', 'OPTIONS'])
+    def llama_chat_stream():
+        if request.method == 'OPTIONS':
+            return ("", 200)
+        req_start = time.time()
+        try:
+            data = request.get_json() or {}
+            prompt = data.get('prompt')
+            if not prompt:
+                return jsonify({"error": "No prompt provided"}), 400
+            lang_hint = (data.get('lang') or data.get('locale') or '').strip()
+            history = data.get('history')
+            if not isinstance(history, list):
+                history = []
+            history = history[-12:]
+            age_group = (
+                data.get('ageGroup')
+                or data.get('agegroup')
+                or data.get('age_group')
+                or data.get('AgeGroup')
+            )
+            user_name = (
+                data.get('name') or data.get('Name') or data.get('username') or data.get('user_name')
+            )
+            if isinstance(age_group, str):
+                agl = age_group.strip().lower()
+                age_group = 'kid' if agl in ('child','children','kids','kiddo') else agl
+            if isinstance(user_name, str):
+                user_name = user_name.strip()
+
+            if embedder is None or index is None or chunks is None:
+                allow = os.environ.get('LLAMA_ALLOW_FALLBACK_WITHOUT_RAG','').strip().lower() in ('1','true','yes')
+                if not allow:
+                    return jsonify({"error": "RAG components not initialized"}), 503
+
+            query_emb = embedder.encode([prompt])
+            query_arr = np.array(query_emb, dtype=np.float32)
+            if query_arr.ndim == 1:
+                query_arr = np.expand_dims(query_arr, 0)
+            D, I = index.search(query_arr, k=3)
+            retrieved_chunks = [chunks[i] for i in I[0] if 0 <= i < len(chunks)]
+            rag_score = None
+            try:
+                if D is not None and len(D) > 0 and len(D[0]) > 0:
+                    d0 = float(D[0][0])
+                    if 0.0 <= d0 <= 1.0:
+                        rag_score = max(0.0, min(1.0, 1.0 - d0))
+                    elif 0.0 <= d0 <= 2.0:
+                        rag_score = max(0.0, min(1.0, 1.0 - (d0 / 2.0)))
+            except Exception:
+                rag_score = None
+            rag_reliable = bool(retrieved_chunks) and (rag_score is not None and rag_score >= 0.70)
+            context = "\n\n---\n\n".join(retrieved_chunks) if retrieved_chunks else ""
+            max_context_chars = int(os.environ.get('RAG_CONTEXT_CHARS', '1200'))
+            if len(context) > max_context_chars:
+                context = context[:max_context_chars] + "\n[context truncated]"
+
+            persona_lines = []
+            if user_name:
+                persona_lines.append(f"The user's name is {user_name}.")
+            persona_lines.append("Speak as ChaCha in first person (I/me) with a warm, friendly tone—natural, concise, and human.")
+            if age_group == 'kid':
+                persona_lines.append("Use simple, positive language; short example or story; end with one friendly question.")
+            elif age_group == 'teen':
+                persona_lines.append("Keep it concise, friendly, and practical — one or two short paragraphs.")
+            else:
+                persona_lines.append("Be concise and conversational; prefer short paragraphs (2–4). Avoid lists unless asked.")
+            persona_lines.append("Ask one brief, tailored follow‑up question to keep the chat flowing, unless the user asks for a one‑shot answer.")
+            persona_lines.append("Use light empathy and clarifying questions when the user’s goal is ambiguous.")
+            persona_lines.append("Do not include role labels or markdown headings in the reply.")
+            try:
+                if lang_hint and str(lang_hint).strip().lower().startswith('hi'):
+                    persona_lines.append("Respond entirely in Hindi using Devanagari script. Keep it natural and simple; avoid English mixing except proper nouns. If the context is in English, translate it into Hindi as you answer.")
+                elif lang_hint:
+                    if str(lang_hint).strip().lower().startswith('en'):
+                        persona_lines.append("Respond in English (Indian English tone).")
+            except Exception:
+                pass
+            if rag_reliable:
+                persona_lines.append("Use the context below as your primary source. If you add general knowledge, keep it minimal and integrated naturally.")
+            else:
+                persona_lines.append("Context appears weak or missing. Answer from general knowledge clearly and helpfully without apologies or disclaimers.")
+            system_preface = "\n".join(persona_lines)
+
+            convo_lines = []
+            for m in history:
+                role = str(m.get('role','')).strip().lower()
+                content = str(m.get('content','')).strip()
+                if not content:
+                    continue
+                if role == 'user':
+                    convo_lines.append(f"User: {content}")
+                elif role == 'assistant':
+                    convo_lines.append(f"Assistant: {content}")
+            conversation_block = "\n".join(convo_lines)
+            full_prompt = (
+                "<SYS>\n"
+                + system_preface
+                + "\nNever mention or quote the <SYS>, <CONTEXT>, or <CONV> sections.\n</SYS>\n\n"
+                + "<CONV>\n" + (conversation_block or "") + "\n</CONV>\n\n"
+                + "<CONTEXT>\n" + (context or "") + "\n</CONTEXT>\n\n"
+                + "User: " + prompt + "\nAssistant:"
+            )
+
+            speed_preset = (os.environ.get('LLAMA_SPEED_PRESET') or env_vars.get('LLAMA_SPEED_PRESET') or 'balanced').strip().lower()
+            try:
+                req_speed = (data.get('speed') or data.get('speed_preset') or '').strip().lower()
+                if req_speed in ('fast','balanced','quality'):
+                    speed_preset = req_speed
+            except Exception:
+                pass
+            if speed_preset not in ('fast','balanced','quality'):
+                speed_preset = 'balanced'
+
+            temperature = 0.2
+            top_p = 0.9
+            if _LLM_DEVICE == 'cpu':
+                preset_tokens = {'fast': 48, 'balanced': 72, 'quality': 104}
+                default_max_time = {'fast': 4.0, 'balanced': 6.0, 'quality': 8.0}[speed_preset]
+            else:
+                preset_tokens = {'fast': 128, 'balanced': 196, 'quality': 320}
+                default_max_time = {'fast': 8.0, 'balanced': 14.0, 'quality': 22.0}[speed_preset]
+            max_new_tokens = int(os.environ.get('LLAMA_MAX_NEW_TOKENS', str(preset_tokens[speed_preset])))
+            try:
+                if (lang_hint and str(lang_hint).strip().lower().startswith('hi')) or ('कहानी' in (prompt or '')) or ('story' in (prompt or '').lower()):
+                    max_new_tokens = int(max_new_tokens * 1.25)
+            except Exception:
+                pass
+            if age_group == 'kid':
+                temperature = 0.7
+            elif age_group == 'teen':
+                temperature = 0.4
+            max_input_tokens = int(os.environ.get('LLAMA_MAX_INPUT_TOKENS', '1024'))
+            max_time = float(os.environ.get('LLAMA_MAX_TIME', str(default_max_time)))
+
+            if tokenizer is None or llm is None or TextIteratorStreamer is None:
+                def gen_fallback():
+                    text = _conversational_fallback(prompt, user_name, age_group, history, lang_hint)
+                    yield json.dumps({"delta": text}) + "\n"
+                    meta = {
+                        "done": True,
+                        "retrieved_count": len(retrieved_chunks),
+                        "rag_score": float(rag_score) if rag_score is not None else None,
+                        "source": "rag" if rag_reliable else "general",
+                        "temperature": round(float(temperature),2),
+                        "top_p": round(float(top_p),2),
+                        "used_max_new_tokens": int(max_new_tokens),
+                        "latency_ms": int((time.time() - req_start) * 1000),
+                        "llm_used": False,
+                    }
+                    yield json.dumps(meta) + "\n"
+                from flask import Response
+                return Response(gen_fallback(), mimetype='application/x-ndjson')
+
+            try:
+                import torch
+                no_grad_ctx = torch.inference_mode
+            except Exception:
+                class _NoopCtx:
+                    def __enter__(self):
+                        return None
+                    def __exit__(self, exc_type, exc, tb):
+                        return False
+                def no_grad_ctx():
+                    return _NoopCtx()
+
+            inputs = tokenizer(full_prompt, return_tensors='pt', truncation=True, max_length=max_input_tokens).to(llm.device)
+            do_sample = False if _LLM_DEVICE == 'cpu' else True
+            if (temperature and float(temperature) > 0.0) or (top_p and float(top_p) < 1.0):
+                do_sample = True
+            generate_kwargs = dict(max_new_tokens=max_new_tokens, do_sample=do_sample, use_cache=False if _LLM_DEVICE=='cpu' else True)
+            if do_sample:
+                generate_kwargs.update(temperature=temperature, top_p=top_p)
+            if max_time > 0:
+                generate_kwargs['max_time'] = max_time
+
+            streamer = TextIteratorStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True)
+
+            def run_generate():
+                with no_grad_ctx():
+                    llm.generate(**inputs, streamer=streamer, **generate_kwargs)
+
+            def gen_stream():
+                import threading as _th
+                th = _th.Thread(target=run_generate, daemon=True)
+                th.start()
+                for piece in streamer:
+                    if not piece:
+                        continue
+                    yield json.dumps({"delta": piece}) + "\n"
+                th.join(timeout=0.1)
+                meta = {
+                    "done": True,
+                    "retrieved_count": len(retrieved_chunks),
+                    "rag_score": float(rag_score) if rag_score is not None else None,
+                    "source": "rag" if rag_reliable else "general",
+                    "temperature": round(float(temperature),2),
+                    "top_p": round(float(top_p),2),
+                    "used_max_new_tokens": int(max_new_tokens),
+                    "latency_ms": int((time.time() - req_start) * 1000),
+                    "llm_used": True,
+                }
+                yield json.dumps(meta) + "\n"
+
+            from flask import Response
+            return Response(gen_stream(), mimetype='application/x-ndjson')
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    return app
+
+app = create_app()
+
+try:
+    skip_tts = (os.environ.get('SKIP_TTS_LOAD') or os.environ.get('SKIP_TTS') or '').strip().lower()
+    if skip_tts in ('1', 'true', 'yes'):
+        logger.info('SKIP_TTS_LOAD set — skipping TTS preload at startup')
+    else:
+        _preload_tts_async()
+except Exception:
+    logger.exception('Failed to evaluate/start TTS preload')
+
+if __name__ == '__main__':  # pragma: no cover
+    app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
 def _kid_story_fallback(topic: str | None, lang: str | None = None) -> str:
     """Short story-style fallback for kids when RAG is weak or model is missing."""
     t = (topic or "the Ganga river").strip()
@@ -965,7 +2309,7 @@ def _detailed_parts(topic: str, lang: str | None) -> list[str]:
             "Example + next steps: a short city case study, then what a citizen can do today.",
         ]
 
-def create_app():
+def create_app_legacy_disabled():
     app = Flask(__name__)
 
     # CORS configuration (allow frontend origins; support comma-separated env)
@@ -1635,13 +2979,22 @@ def create_app():
                 persona_lines.append(f"The user's name is {user_name}.")
             # Natural, human-style guidance by age
             persona_lines.append("Speak as ChaCha in first person (I/me) with a warm, friendly tone—natural, concise, and human.")
-            # For younger users, always prefer story-style simplification
+            # Decide kid story mode only when appropriate, not always
+            use_kid_story = False
             if (age_group == 'kid'):
-                # Force storified, kid-friendly responses for users classified as 'kid'
-                persona_lines.append("Use simple, positive language and create a short story example appropriate for kids.")
-                persona_lines.append("Structure: briefly explain the idea, then tell a small story (setting → action → outcome), and end with one friendly question.")
-                persona_lines.append("Keep it ~80–140 words, vivid but simple; prefer familiar Indian names/places and Ganga context when it fits naturally.")
-                persona_lines.append("Avoid headings and lists; write in 3–5 short paragraphs so it’s easy to follow.")
+                # Heuristics: greeting story, conceptual questions (why/how/what), or weak RAG
+                lt_prompt = (prompt or '').strip().lower()
+                if ('kid_greeting_story' in locals() and kid_greeting_story) or any(
+                    kw in lt_prompt for kw in ('why', 'how', 'what is', 'tell me', 'story')
+                ) or not rag_reliable:
+                    use_kid_story = True
+                if use_kid_story:
+                    persona_lines.append("Use simple, positive language and create a short story example appropriate for kids.")
+                    persona_lines.append("Structure: briefly explain the idea, then tell a small story (setting → action → outcome), and end with one friendly question.")
+                    persona_lines.append("Keep it ~80–140 words, vivid but simple; prefer familiar Indian names/places and Ganga context when it fits naturally.")
+                    persona_lines.append("Avoid headings and lists; write in 3–5 short paragraphs so it’s easy to follow.")
+                else:
+                    persona_lines.append("Use simple, positive language; explain in 1–2 short paragraphs with one concrete example. Avoid lists unless asked.")
             elif age_group == 'teen':
                 persona_lines.append("Keep it concise, friendly, and practical — one or two short paragraphs.")
             else:
@@ -1898,13 +3251,6 @@ def create_app():
                 input_len = int(inputs["input_ids"].shape[1])
                 gen_tokens = output[0][input_len:]
                 result = tokenizer.decode(gen_tokens, skip_special_tokens=True).strip()
-                # Defensive cleanup: if the model output repeats the last assistant
-                # turn or the configured welcome message at the start, strip that
-                # duplicated prefix to avoid concatenated replies on the client.
-                try:
-                    result = _strip_leading_duplicate(result, conversation_block)
-                except Exception:
-                    pass
                 # Post-process: strip any leaked meta labels or headings
                 try:
                     import re as _re
@@ -2279,19 +3625,10 @@ def create_app():
             return jsonify({"error": str(e)}), 500
 
     return app
-app = create_app()
+app_legacy_disabled = None
 
-# Kick off TTS preload once the Flask app has been created
-try:
-    skip_tts = (os.environ.get('SKIP_TTS_LOAD') or os.environ.get('SKIP_TTS') or '').strip().lower()
-    if skip_tts in ('1', 'true', 'yes'):
-        logger.info('SKIP_TTS_LOAD set — skipping TTS preload at startup')
-    else:
-        _preload_tts_async()
-except Exception:
-    # Non-fatal
-    logger.exception('Failed to evaluate/start TTS preload')
+# Legacy TTS preload disabled
+pass
 
-if __name__ == '__main__':  # pragma: no cover
-    # Disable debug in container to avoid reloader killing the process on exceptions
-    app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
+# Legacy __main__ block disabled
+pass
