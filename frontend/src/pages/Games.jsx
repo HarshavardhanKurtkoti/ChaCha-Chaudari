@@ -6,7 +6,7 @@ import Leaderboard from 'components/Leaderboard';
 import AchievementModal from 'components/AchievementModal';
 import PlayerNamePrompt from 'components/PlayerNamePrompt';
 import DailyReward from 'components/DailyReward';
-import SettingsPanel from 'components/SettingsPanel';
+
 import PropTypes from 'prop-types';
 import { useTranslation } from 'hooks/useTranslation';
 
@@ -171,6 +171,14 @@ function RiverCleanup({ onScore }) {
   const [finished, setFinished] = useState(false);
   const containerRef = useRef(null);
 
+  // Refs to access latest state inside intervals without resetting them
+  const scoreRef = useRef(0);
+  const onScoreRef = useRef(onScore);
+
+  useEffect(() => {
+    onScoreRef.current = onScore;
+  }, [onScore]);
+
   // Spawn items
   useEffect(() => {
     if (finished) return;
@@ -192,7 +200,7 @@ function RiverCleanup({ onScore }) {
       setTimeLeft(t => {
         if (t <= 1) {
           setFinished(true);
-          onScore(score, { mission: 'cleanup', event: 'completed' });
+          onScoreRef.current(scoreRef.current, { mission: 'cleanup', event: 'completed' });
           return 0;
         }
         return t - 1;
@@ -204,15 +212,19 @@ function RiverCleanup({ onScore }) {
     }, 50);
 
     return () => { clearInterval(timer); clearInterval(mover); };
-  }, [finished, score, onScore]);
+  }, [finished]);
 
   const handleClick = (id, type) => {
     if (finished) return;
     if (type === 'trash') {
-      setScore(s => s + 10);
+      const newScore = score + 10;
+      setScore(newScore);
+      scoreRef.current = newScore;
       setItems(prev => prev.filter(i => i.id !== id));
     } else {
-      setScore(s => Math.max(0, s - 5)); // Penalty for clicking fish
+      const newScore = Math.max(0, score - 5); // Penalty for clicking fish
+      setScore(newScore);
+      scoreRef.current = newScore;
     }
   };
 
@@ -280,16 +292,7 @@ export default function Games() {
     if (meta) setShowAchievement({ title: `${meta.label}!`, message: 'Great job!' });
   };
 
-  const resetProgress = () => {
-    const cleared = { points: 0, badges: [], gamesPlayed: 0, achievements: [], lastPlayDate: null, streak: 0 };
-    setProgress(cleared);
-    saveProgress(cleared);
-  };
 
-  const resetLeaderboard = () => {
-    try { localStorage.removeItem('gangaLeaderboard:v1'); } catch (e) { /* ignore */ }
-    setLbKey(k => k + 1);
-  };
 
   const CARD_CLASS = "bg-gray-800/40 backdrop-blur-md border border-gray-700/50 rounded-2xl p-6 shadow-xl";
 
@@ -393,9 +396,7 @@ export default function Games() {
               <Leaderboard key={lbKey} currentUser={playerName} currentScore={progress.points} />
             </div>
 
-            <div className={CARD_CLASS}>
-              <SettingsPanel onResetProgress={resetProgress} onResetLeaderboard={resetLeaderboard} />
-            </div>
+
           </div>
         </div>
 

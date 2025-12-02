@@ -31,8 +31,14 @@ const ChatBot = ({ setIsSpeaking }) => {
 	// the current selection (avoids stale closures).
 	const ttsVoiceRef = useRef(settings?.ttsVoice);
 	useEffect(() => {
-		ttsVoiceRef.current = settings?.ttsVoice;
-	}, [settings?.ttsVoice]);
+		// Choose default voice based on app language
+		let voice = settings?.ttsVoice;
+		if (!voice) {
+			if (settings?.language === 'hi') voice = 'hi_IN-rohan-medium';
+			else voice = 'en_US-kusal-medium';
+		}
+		ttsVoiceRef.current = voice;
+	}, [settings?.ttsVoice, settings?.language]);
 	// On mount, optionally trigger voice flow via custom event. We intentionally don't include
 	// addMessage/getResponse/setIsSpeaking in deps to avoid re-wiring handlers repeatedly.
 	useEffect(() => {
@@ -477,9 +483,9 @@ const ChatBot = ({ setIsSpeaking }) => {
 
 			// Debug log for networking
 			try { console.debug('llama-chat-stream request', { baseURL, url: `${baseURL}/llama-chat-stream`, payload, options }); } catch { }
-			// Ensure language hint travels with the request so backend can reply in Hindi when selected
-			const currentLang = (typeof lang === 'string' && lang) || (settings?.ttsLang) || 'en-IN';
-			payload.lang = currentLang;
+			// Ensure language hint travels with the request so backend can reply in the selected app language
+			const appLang = settings?.language === 'hi' ? 'hi-IN' : 'en-US';
+			payload.lang = appLang;
 			const streamUrl = `${String(baseURL).replace(/\/$/, '')}/llama-chat-stream`;
 			const resp = await fetch(streamUrl, {
 				method: 'POST',
@@ -570,18 +576,8 @@ const ChatBot = ({ setIsSpeaking }) => {
 				}
 			} catch { }
 
-			// Auto-continue for Hindi as separate bubbles when enabled via options
-			try {
-				const wantSegments = typeof options.autoContinueSegments === 'number' ? options.autoContinueSegments : 0;
-				const currentLang = (typeof lang === 'string' && lang) || (settings?.ttsLang) || 'en-IN';
-				const isHindi = String(currentLang).toLowerCase().startsWith('hi');
-				// Only auto-continue in Hindi and only when requested
-				if (isHindi && wantSegments > 0) {
-					// Small pause to let UI render previous bubble nicely
-					await new Promise(r => setTimeout(r, 250));
-					await streamResponse({ prompt: 'कृपया आगे बताइए', lang: currentLang }, { appendToLast: false, autoContinueSegments: wantSegments - 1 });
-				}
-			} catch { }
+			// Auto-continue for Hindi is now disabled so English and Hindi
+			// both return a single concise answer per question.
 		} catch (e) {
 			console.error('streamResponse error', e);
 			setState('idle');
@@ -763,10 +759,8 @@ const ChatBot = ({ setIsSpeaking }) => {
 				setState('waiting');
 				SpeechRecognition.abortListening();
 				if (streamingEnabled) {
-					// In Hindi, keep elaborating into 2 extra messages automatically
-					const isHindi = String(lang || '').toLowerCase().startsWith('hi');
-					const autoSegs = isHindi ? 2 : 0;
-					await streamResponse({ prompt: message, lang }, { autoContinueSegments: autoSegs });
+					// Do not auto-continue; always request a single streamed answer
+					await streamResponse({ prompt: message, lang }, { autoContinueSegments: 0 });
 					setMessage('');
 					resetTranscript();
 				} else {

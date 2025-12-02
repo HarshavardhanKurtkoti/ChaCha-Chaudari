@@ -562,11 +562,36 @@ def _translate_with_llm_to_hindi(src: str) -> str | None:
         if tokenizer is None or llm is None:
             return None
         prompt = (
-            "Translate the following text to Hindi in Devanagari script. Keep meaning and tone, "
-            "and do not add extra commentary.\n\nText:\n" + src.strip() + "\n\nHindi:"
+            "Translate the following text to Hindi in Devanagari script. "
+            "Do not add any extra explanation, examples, or questions. "
+            "Keep sentences short and clear.\n\nText:\n" + src.strip() + "\n\nHindi:"
         )
         inputs = tokenizer(prompt, return_tensors='pt', truncation=True, max_length=512).to(llm.device)
-        kwargs = dict(max_new_tokens=160, do_sample=False, use_cache=True)
+        kwargs = dict(max_new_tokens=400, do_sample=False, use_cache=True)
+        out = llm.generate(**inputs, **kwargs)
+        input_len = int(inputs['input_ids'].shape[1])
+        gen = out[0][input_len:]
+        return tokenizer.decode(gen, skip_special_tokens=True).strip()
+    except Exception:
+        return None
+
+def _translate_with_llm_to_english(src: str) -> str | None:
+    """Translate arbitrary text to English using the loaded LLM.
+
+    Used for Hindi (or mixed) user prompts so that RAG + generation can run
+    against a clean English version, while the final answer is translated back
+    to Hindi for display.
+    """
+    try:
+        if tokenizer is None or llm is None:
+            return None
+        prompt = (
+            "Translate the following text to English. "
+            "Do not add any extra explanation, examples, or questions. "
+            "Keep sentences short and clear.\n\nText:\n" + src.strip() + "\n\nEnglish:"
+        )
+        inputs = tokenizer(prompt, return_tensors='pt', truncation=True, max_length=512).to(llm.device)
+        kwargs = dict(max_new_tokens=400, do_sample=False, use_cache=True)
         out = llm.generate(**inputs, **kwargs)
         input_len = int(inputs['input_ids'].shape[1])
         gen = out[0][input_len:]
@@ -1327,7 +1352,18 @@ def create_app():
             except Exception:
                 pass
 
-            logging.debug(f"Prompt received: {prompt}")
+            # For Hindi flows, first translate the user prompt to English so that
+            # RAG and the core LLM reasoning always see clean English text.
+            original_prompt = prompt
+            try:
+                if lang_hint and str(lang_hint).strip().lower().startswith('hi'):
+                    translated_prompt = _translate_with_llm_to_english(prompt or '')
+                    if translated_prompt:
+                        prompt = translated_prompt
+            except Exception:
+                pass
+
+            logging.debug(f"Prompt received (normalized): {prompt}")
             history = data.get('history')
             if not isinstance(history, list):
                 history = []
@@ -1658,18 +1694,17 @@ def create_app():
                 result = tokenizer.decode(gen_tokens, skip_special_tokens=True).strip()
                 try:
                     import re as _re
-                    lines = [
-                        ln
-                        for ln in result.split("\n")
-                        if not _re.search(
-                            r"^(System instructions:|<SYS>|</SYS>|<CONTEXT>|</CONTEXT>|<CONV>|</CONV>|Instruction\b|You are now role-?playing)",
-                            ln.strip(),
-                            _re.I,
-                        )
-                    ]
+                    raw_lines = result.split("\n")
+                    lines = []
+                    for ln in raw_lines:
+                        stripped = ln.strip()
+                        # If the model starts echoing system/meta sections, stop there
+                        if _re.match(r"^(System instructions:|<SYS>|</SYS>|<CONTEXT>|</CONTEXT>|<CONV>|</CONV>|Instruction\b|You are now role-?playing)", stripped, _re.I):
+                            break
+                        lines.append(ln)
                     if lines and lines[0].strip().lower().startswith('assistant:'):
                         lines[0] = lines[0].split(':', 1)[1].strip()
-                    # Drop any trailing hallucinated Q&A style turns
+                    # Drop any trailing hallucinated Q&A style turns (User:/Assistant:)
                     cleaned = []
                     for ln in lines:
                         if _re.match(r"^(User:|<User>:|Assistant:|<Assistant>:)", ln.strip(), _re.I):
@@ -1737,8 +1772,9 @@ def create_app():
             except Exception as gen_err:
                 logger.error(f"LLM generation failed, using fallback: {gen_err}")
                 result = _conversational_fallback(prompt, user_name, age_group, history, lang_hint)
+            # If Hindi is requested, always translate the English LLM answer to Hindi
             try:
-                if lang_hint and str(lang_hint).strip().lower().startswith('hi') and _is_mostly_english(result or ''):
+                if lang_hint and str(lang_hint).strip().lower().startswith('hi'):
                     translated = _translate_with_llm_to_hindi(result or '')
                     if translated:
                         result = translated

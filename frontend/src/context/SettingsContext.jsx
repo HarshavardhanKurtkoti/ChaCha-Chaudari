@@ -5,13 +5,13 @@ const SETTINGS_KEY = 'gangaSettings:v1';
 
 const defaultSettings = {
   soundEnabled: true,
-  // Default to a local Piper-like English India voice id
-  ttsVoice: 'en_IN-male-medium',
+  // Default voices per language are selected in ChatBot; this is a fallback
+  ttsVoice: 'en_US-kusal-medium',
   // Default TTS playback rate (pyttsx3 uses absolute rate; lower = slower)
   // Typical default on Windows is ~200; choose a slightly slower default for clarity
   ttsRate: 150,
   // Language hint passed to backend to improve pronunciation choices
-  ttsLang: 'en-IN',
+  ttsLang: 'en-US',
   // Animation quality for particle effects on Chat page: 'high' | 'low' | 'off'
   animationQuality: 'high',
   // App Language
