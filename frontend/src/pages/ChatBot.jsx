@@ -35,6 +35,8 @@ const ChatBot = ({ setIsSpeaking }) => {
 	// Keep a ref to the latest ttsVoice so event handlers created on mount use
 	// the current selection (avoids stale closures).
 	const ttsVoiceRef = useRef(settings?.ttsVoice);
+	const currentAudioRef = useRef(null); // Track currently playing audio to allow cancellation
+
 	useEffect(() => {
 		// Choose default voice based on app language
 		let voice = settings?.ttsVoice;
@@ -44,6 +46,20 @@ const ChatBot = ({ setIsSpeaking }) => {
 		}
 		ttsVoiceRef.current = voice;
 	}, [settings?.ttsVoice, settings?.language]);
+
+	// Stop audio immediately if voice is disabled
+	useEffect(() => {
+		if (!audio) {
+			if (currentAudioRef.current) {
+				try {
+					currentAudioRef.current.pause();
+					currentAudioRef.current = null;
+				} catch (e) { console.error('Error stopping audio', e); }
+			}
+			setIsSpeakingLocal(false);
+		}
+	}, [audio]);
+
 	// On mount, optionally trigger voice flow via custom event. We intentionally don't include
 	// addMessage/getResponse/setIsSpeaking in deps to avoid re-wiring handlers repeatedly.
 	useEffect(() => {
@@ -270,9 +286,17 @@ const ChatBot = ({ setIsSpeaking }) => {
 			const blob = await response.blob();
 			const audioUrl = URL.createObjectURL(blob);
 			const audio = new Audio(audioUrl);
+
+			// Stop any currently playing audio
+			if (currentAudioRef.current) {
+				try { currentAudioRef.current.pause(); } catch { }
+			}
+			currentAudioRef.current = audio;
+
 			audio.onended = () => {
 				try { URL.revokeObjectURL(audioUrl); } catch { }
 				setIsSpeakingLocal(false);
+				if (currentAudioRef.current === audio) currentAudioRef.current = null;
 			};
 			audio.onpause = () => setIsSpeakingLocal(false);
 			try {
