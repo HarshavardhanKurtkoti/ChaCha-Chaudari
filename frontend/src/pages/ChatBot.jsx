@@ -48,12 +48,12 @@ const ChatBot = ({ setIsSpeaking }) => {
 				const userInitiated = !!e.detail.userInitiated;
 				if (!userInitiated) {
 					// If not user-initiated, do not add a user message or call backend.
-							return;
-						}
-						// User initiated: send the greeting prompt to backend as before
-						addMessage('user', 'hello');
-						setState('waiting');
-						getResponse({ prompt: 'hello', lang }, '/llama-chat').then(resp => {
+					return;
+				}
+				// User initiated: send the greeting prompt to backend as before
+				addMessage('user', 'hello');
+				setState('waiting');
+				getResponse({ prompt: 'hello', lang }, '/llama-chat').then(resp => {
 					setState('idle');
 					if (resp && resp.data && resp.data.result) {
 						addMessage('assistant', resp.data.result);
@@ -221,18 +221,18 @@ const ChatBot = ({ setIsSpeaking }) => {
 			const forcedBase = 'http://127.0.0.1:6001';
 			const apiBase = envBase || forcedBase;
 			console.debug('playTTS base resolved', { apiBase, origin: window.location.origin });
-						// Determine the voice to send:
-						// 1) Prefer explicit user selection stored in settings (use ref to avoid stale closures)
-						// 2) Fall back to settings.ttsVoice
-						// 3) Finally fall back to language heuristic (Hindi vs English)
-						const selectedVoice = (ttsVoiceRef && ttsVoiceRef.current) || settings?.ttsVoice;
-						// Compute a sensible language hint
-						const currentLang = (typeof lang === 'string' && lang) || settings?.ttsLang || 'en-IN';
-						const isHindi = String(currentLang).toLowerCase().startsWith('hi');
-						const voiceToSend = (selectedVoice && String(selectedVoice).length)
-							? selectedVoice
-							: (isHindi ? 'hi_IN-rohan-medium' : 'en_US-kusal-medium');
-						const langToSend = settings?.ttsLang || (isHindi ? 'hi-IN' : 'en-US');
+			// Determine the voice to send:
+			// 1) Prefer explicit user selection stored in settings (use ref to avoid stale closures)
+			// 2) Fall back to settings.ttsVoice
+			// 3) Finally fall back to language heuristic (Hindi vs English)
+			const selectedVoice = (ttsVoiceRef && ttsVoiceRef.current) || settings?.ttsVoice;
+			// Compute a sensible language hint
+			const currentLang = (typeof lang === 'string' && lang) || settings?.ttsLang || 'en-IN';
+			const isHindi = String(currentLang).toLowerCase().startsWith('hi');
+			const voiceToSend = (selectedVoice && String(selectedVoice).length)
+				? selectedVoice
+				: (isHindi ? 'hi_IN-rohan-medium' : 'en_US-kusal-medium');
+			const langToSend = settings?.ttsLang || (isHindi ? 'hi-IN' : 'en-US');
 			console.debug('playTTS sending voice/lang=', voiceToSend, langToSend);
 			const postUrl = `${String(apiBase).replace(/\/$/, '')}/tts`;
 			console.debug('playTTS POST', postUrl);
@@ -426,9 +426,9 @@ const ChatBot = ({ setIsSpeaking }) => {
 			const userToken = localStorage.getItem('userToken');
 			const payload = { ...userdata, ageGroup, name };
 			// Provide recent conversation history for context (last 12 messages)
-			try {
-				payload.history = (chatHistory || []).slice(-12);
-			} catch { }
+			// try {
+			// 	payload.history = (chatHistory || []).slice(-12);
+			// } catch { }
 			// Previously we forced a concise, "fast"/fallback mode in voice. That produced
 			// gist-like answers (e.g., "Here's the gist…"). Now we default to full answers
 			// unless explicitly requested elsewhere. Leave speed undefined to let the
@@ -475,7 +475,7 @@ const ChatBot = ({ setIsSpeaking }) => {
 				if (typeof age === 'number' && !Number.isNaN(age)) ageGroup = age <= 10 ? 'kid' : age < 16 ? 'teen' : 'adult';
 			} catch { }
 			const payload = { ...userdata, ageGroup, name };
-			try { payload.history = (chatHistory || []).slice(-12); } catch { }
+			// try { payload.history = (chatHistory || []).slice(-12); } catch { }
 			try {
 				// Do NOT force 'fast' in voice mode; default to balanced/full responses
 				if (!payload.speed) payload.speed = 'balanced';
@@ -882,29 +882,29 @@ const ChatBot = ({ setIsSpeaking }) => {
 										))
 									)}
 									{pendingTTS && (
-												<div className='flex justify-start w-full'>
-													<div className='rounded-2xl px-4 py-2 shadow-sm text-sm bg-blue-700 text-white mb-3 flex items-center gap-3'>
-														<span>Audio ready</span>
-														<button
-															onClick={() => {
-																try {
-																	const a = new Audio(pendingTTS.audioUrl);
-																	a.onended = () => { try { URL.revokeObjectURL(pendingTTS.audioUrl); } catch { } };
-																	a.play().then(() => setPendingTTS(null)).catch(() => { /* ignore */ });
-																} catch { /* ignore */ }
-															}}
-															className='px-2 py-1 bg-black/30 hover:bg-black/50 rounded'
-														>
-															▶ Play voice
-														</button>
-														<button className='text-xs underline opacity-80 hover:opacity-100'
-															onClick={() => { setPendingTTS(null); }}
-														>
-															Dismiss
-														</button>
-													</div>
-												</div>
-												)}
+										<div className='flex justify-start w-full'>
+											<div className='rounded-2xl px-4 py-2 shadow-sm text-sm bg-blue-700 text-white mb-3 flex items-center gap-3'>
+												<span>Audio ready</span>
+												<button
+													onClick={() => {
+														try {
+															const a = new Audio(pendingTTS.audioUrl);
+															a.onended = () => { try { URL.revokeObjectURL(pendingTTS.audioUrl); } catch { } };
+															a.play().then(() => setPendingTTS(null)).catch(() => { /* ignore */ });
+														} catch { /* ignore */ }
+													}}
+													className='px-2 py-1 bg-black/30 hover:bg-black/50 rounded'
+												>
+													▶ Play voice
+												</button>
+												<button className='text-xs underline opacity-80 hover:opacity-100'
+													onClick={() => { setPendingTTS(null); }}
+												>
+													Dismiss
+												</button>
+											</div>
+										</div>
+									)}
 									{/* Typing indicator bubble when assistant is thinking */}
 									{(state === 'waiting' || state === 'thinking') && (
 										<div className='flex justify-start w-full'>

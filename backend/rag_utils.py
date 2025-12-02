@@ -272,6 +272,37 @@ if _chunks is None or _emb is None or (_FAISS_OK and _faiss_idx is None) or _reb
             continue
     all_text = "\n\n".join(texts)
     chunks = chunk_text(all_text)
+
+    # --- START PATCH: sanitize persisted/generated chunks (remove role-labelled lines) ---
+    import re
+
+    def _rag_remove_role_lines_and_code(s: str) -> str:
+        if not s:
+            return s
+        s = str(s)
+        s = re.sub(r'(?im)^[\s]*<(?:user|assistant)>\s*[:\-–]?\s*.*\n?', '', s)
+        s = re.sub(r'(?im)^[\s]*(?:user|assistant)\s*[:\-–]\s*.*\n?', '', s)
+        s = re.sub(r'`{3}[\s\S]*?`{3}', ' ', s)
+        s = re.sub(r'`([^`]*)`', r'\1', s)
+        s = re.sub(r'\r\n|\r', '\n', s)
+        s = re.sub(r'\n{2,}', '\n\n', s)
+        s = re.sub(r'[ \t]{2,}', ' ', s)
+        return s.strip()
+
+    # Clean the loaded/generated chunks list in-place before further use or persisting
+    _cleaned = []
+    for c in (chunks or []):
+        try:
+            cc = _rag_remove_role_lines_and_code(c)
+            if cc and len(cc) > 30:
+                _cleaned.append(cc)
+        except Exception:
+            continue
+
+    # Replace chunks with cleaned list (prevents future retrievals from returning role-labelled content)
+    chunks = _cleaned
+    # --- END PATCH ---
+
     index, embeddings = build_index(chunks, dim=embedder.dim)
     # Persist artifacts (FAISS only if present)
     _save_artifacts(chunks, embeddings, index if _FAISS_OK else None)

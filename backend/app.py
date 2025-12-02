@@ -105,11 +105,18 @@ def get_piper_voices(force_refresh: bool = False):
 
 def pick_indian_piper_voice(preferred_id: str | None) -> dict | None:
     voices = get_piper_voices()
+    print(f"DEBUG: Available voices: {[v['shortName'] for v in voices]}")
     if not voices:
         return None
     pref = (preferred_id or '').strip()
     for v in voices:
         if v.get('id') == pref or v.get('shortName') == pref:
+            print(f"DEBUG: Selected preferred voice: {v['shortName']}")
+            return v
+    # Force preference for Kieran (Male Indian English)
+    for v in voices:
+        if 'kieran' in str(v.get('shortName')).lower():
+            print(f"DEBUG: Selected Kieran voice: {v['shortName']}")
             return v
     for v in voices:
         if str(v.get('locale')).upper() == 'HI-IN':
@@ -117,6 +124,7 @@ def pick_indian_piper_voice(preferred_id: str | None) -> dict | None:
     for v in voices:
         if str(v.get('locale')).upper() == 'EN-IN':
             return v
+    print(f"DEBUG: Fallback voice: {voices[0]['shortName']}")
     return voices[0]
 
 logging.getLogger("pdfminer").setLevel(logging.ERROR)
@@ -151,11 +159,14 @@ except Exception:
 
 try:
     import torch  # noqa: F401
-    from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig  # type: ignore
-    try:
-        from transformers import TextIteratorStreamer  # type: ignore
-    except Exception:
-        TextIteratorStreamer = None  # type: ignore
+    from transformers import (
+        AutoTokenizer,
+        AutoModelForCausalLM,
+        BitsAndBytesConfig,
+        TextIteratorStreamer,
+        StoppingCriteria,
+        StoppingCriteriaList,
+    )  # type: ignore
     _TRANSFORMERS_AVAILABLE = True
 except Exception as _tx_err:
     logger.warning(f"Transformers/torch not available, LLM disabled: {_tx_err}")
@@ -3002,6 +3013,54 @@ def create_app_legacy_disabled():
 
             # Treat score >= 0.70 as reliable RAG hit (stricter to avoid bad chunks from hash embeddings)
             rag_reliable = bool(retrieved_chunks) and (rag_score is not None and rag_score >= 0.70)
+            # --- START PATCH: sanitize retrieved_chunks to remove role-labelled lines/code blocks ---
+            import re
+
+            def _strip_role_lines_and_code(text: str) -> str:
+                """Remove role-labelled lines (User:/Assistant:/<User>:) and code fences, normalize whitespace."""
+                if not text:
+                    return ""
+                s = str(text)
+
+                # Remove entire lines that start with role labels like "User:", "Assistant:", "<User>:", "<Assistant>:"
+                s = re.sub(r'(?im)^[\s]*<(?:user|assistant)>\s*[:\-–]?\s*.*\n?', '', s)  # angle-bracket roles
+                s = re.sub(r'(?im)^[\s]*(?:user|assistant)\s*[:\-–]\s*.*\n?', '', s)       # plain "User:" or "Assistant:"
+                s = re.sub(r'(?im)^[\s]*<\/*(?:user|assistant)[^>]*>\s*.*\n?', '', s)      # other xml-like tags
+
+                # Remove fenced code blocks and inline code ticks
+                s = re.sub(r'```[\s\S]*?```', ' ', s)
+                s = re.sub(r'`([^`]*)`', r'\1', s)
+
+                # Collapse whitespace/newlines and trim
+                s = re.sub(r'\r\n|\r', '\n', s)
+                s = re.sub(r'\n{2,}', '\n\n', s)
+                s = re.sub(r'[ \t]{2,}', ' ', s)
+                s = s.strip()
+                return s
+
+            # Clean top N chunks (protect performance) and overwrite retrieved_chunks
+            cleaned_chunks = []
+            for c in (retrieved_chunks or [])[:8]:   # limit to top 8 retrieved items
+                try:
+                    cleaned = _strip_role_lines_and_code(c)
+                    # keep only reasonably sized chunks to avoid noise
+                    if cleaned and len(cleaned) > 30:
+                        cleaned_chunks.append(cleaned)
+                except Exception:
+                    continue
+
+            # Replace retrieved_chunks globally so all downstream code uses sanitized data
+            if cleaned_chunks:
+                retrieved_chunks = list(cleaned_chunks)
+            else:
+                # no cleaned chunks found: set to empty list to avoid accidental raw usage
+                retrieved_chunks = []
+
+            # Provide a top_clean variable for all fallback/snippet code paths to consume
+            top_clean = (retrieved_chunks[0] or "").strip() if retrieved_chunks else ""
+            logger.debug("Sanitized RAG context preview (top 3): %s", (retrieved_chunks[:3] if retrieved_chunks else []))
+            # --- END PATCH ---
+
             context = "\n\n---\n\n".join(retrieved_chunks) if retrieved_chunks else ""
 
             # Hard cap context size to avoid excessive input length
@@ -3085,6 +3144,8 @@ def create_app_legacy_disabled():
                     content = str(m.get('content', '')).strip()
                     if not content:
                         continue
+                    # Sanitize user content to prevent prompt injection via role labels
+                    content = _strip_role_lines_and_code(content)
                     if role == 'user':
                         convo_lines.append(f"User: {content}")
                     elif role == 'assistant':
@@ -3497,6 +3558,55 @@ def create_app_legacy_disabled():
             except Exception:
                 rag_score = None
             rag_reliable = bool(retrieved_chunks) and (rag_score is not None and rag_score >= 0.70)
+
+            # --- START PATCH: sanitize retrieved_chunks to remove role-labelled lines/code blocks ---
+            import re
+
+            def _strip_role_lines_and_code(text: str) -> str:
+                """Remove role-labelled lines (User:/Assistant:/<User>:) and code fences, normalize whitespace."""
+                if not text:
+                    return ""
+                s = str(text)
+
+                # Remove entire lines that start with role labels like "User:", "Assistant:", "<User>:", "<Assistant>:"
+                s = re.sub(r'(?im)^[\s]*<(?:user|assistant)>\s*[:\-–]?\s*.*\n?', '', s)  # angle-bracket roles
+                s = re.sub(r'(?im)^[\s]*(?:user|assistant)\s*[:\-–]\s*.*\n?', '', s)       # plain "User:" or "Assistant:"
+                s = re.sub(r'(?im)^[\s]*<\/*(?:user|assistant)[^>]*>\s*.*\n?', '', s)      # other xml-like tags
+
+                # Remove fenced code blocks and inline code ticks
+                s = re.sub(r'```[\s\S]*?```', ' ', s)
+                s = re.sub(r'`([^`]*)`', r'\1', s)
+
+                # Collapse whitespace/newlines and trim
+                s = re.sub(r'\r\n|\r', '\n', s)
+                s = re.sub(r'\n{2,}', '\n\n', s)
+                s = re.sub(r'[ \t]{2,}', ' ', s)
+                s = s.strip()
+                return s
+
+            # Clean top N chunks (protect performance) and overwrite retrieved_chunks
+            cleaned_chunks = []
+            for c in (retrieved_chunks or [])[:8]:   # limit to top 8 retrieved items
+                try:
+                    cleaned = _strip_role_lines_and_code(c)
+                    # keep only reasonably sized chunks to avoid noise
+                    if cleaned and len(cleaned) > 30:
+                        cleaned_chunks.append(cleaned)
+                except Exception:
+                    continue
+
+            # Replace retrieved_chunks globally so all downstream code uses sanitized data
+            if cleaned_chunks:
+                retrieved_chunks = list(cleaned_chunks)
+            else:
+                # no cleaned chunks found: set to empty list to avoid accidental raw usage
+                retrieved_chunks = []
+
+            # Provide a top_clean variable for all fallback/snippet code paths to consume
+            top_clean = (retrieved_chunks[0] or "").strip() if retrieved_chunks else ""
+            logger.debug("Sanitized RAG context preview (top 3): %s", (retrieved_chunks[:3] if retrieved_chunks else []))
+            # --- END PATCH ---
+
             context = "\n\n---\n\n".join(retrieved_chunks) if retrieved_chunks else ""
             max_context_chars = int(os.environ.get('RAG_CONTEXT_CHARS', '1200'))
             if len(context) > max_context_chars:
@@ -3529,27 +3639,34 @@ def create_app_legacy_disabled():
                 persona_lines.append("Use the context below as your primary source. If you add general knowledge, keep it minimal and integrated naturally.")
             else:
                 persona_lines.append("Context appears weak or missing. Answer from general knowledge clearly and helpfully without apologies or disclaimers.")
+            # Phi-3 Standard Prompt Format
             system_preface = "\n".join(persona_lines)
-
-            convo_lines = []
+            
+            full_prompt = f"<|system|>\n{system_preface}<|end|>\n"
+            
             for m in history:
                 role = str(m.get('role','')).strip().lower()
                 content = str(m.get('content','')).strip()
                 if not content:
                     continue
+                # Sanitize user content to prevent prompt injection via role labels
+                content = _strip_role_lines_and_code(content)
                 if role == 'user':
-                    convo_lines.append(f"User: {content}")
+                    full_prompt += f"<|user|>\n{content}<|end|>\n"
                 elif role == 'assistant':
-                    convo_lines.append(f"Assistant: {content}")
-            conversation_block = "\n".join(convo_lines)
-            full_prompt = (
-                "<SYS>\n"
-                + system_preface
-                + "\nNever mention or quote the <SYS>, <CONTEXT>, or <CONV> sections.\n</SYS>\n\n"
-                + "<CONV>\n" + (conversation_block or "") + "\n</CONV>\n\n"
-                + "<CONTEXT>\n" + (context or "") + "\n</CONTEXT>\n\n"
-                + "User: " + prompt + "\nAssistant:"
-            )
+                    full_prompt += f"<|assistant|>\n{content}<|end|>\n"
+            
+            # Add RAG context as a system or user message? 
+            # For Phi-3, it's often best to put context in the system or the last user message.
+            # Let's append it to the last user message or a specific context block.
+            # Here we'll put it before the final user prompt.
+            
+            if context:
+                full_prompt += f"<|user|>\nContext:\n{context}\n\nQuestion:\n{prompt}<|end|>\n"
+            else:
+                full_prompt += f"<|user|>\n{prompt}<|end|>\n"
+            
+            full_prompt += "<|assistant|>\n"
 
             # Speed preset handling
             speed_preset = (os.environ.get('LLAMA_SPEED_PRESET') or env_vars.get('LLAMA_SPEED_PRESET') or 'balanced').strip().lower()
@@ -3565,11 +3682,11 @@ def create_app_legacy_disabled():
             temperature = 0.2
             top_p = 0.9
             if _LLM_DEVICE == 'cpu':
-                preset_tokens = {'fast': 48, 'balanced': 72, 'quality': 104}
-                default_max_time = {'fast': 4.0, 'balanced': 6.0, 'quality': 8.0}[speed_preset]
+                preset_tokens = {'fast': 128, 'balanced': 256, 'quality': 512}
+                default_max_time = {'fast': 10.0, 'balanced': 20.0, 'quality': 40.0}[speed_preset]
             else:
-                preset_tokens = {'fast': 128, 'balanced': 196, 'quality': 320}
-                default_max_time = {'fast': 8.0, 'balanced': 14.0, 'quality': 22.0}[speed_preset]
+                preset_tokens = {'fast': 256, 'balanced': 600, 'quality': 1200}
+                default_max_time = {'fast': 15.0, 'balanced': 45.0, 'quality': 90.0}[speed_preset]
             max_new_tokens = int(os.environ.get('LLAMA_MAX_NEW_TOKENS', str(preset_tokens[speed_preset])))
             # Allow slightly longer replies for Hindi or story requests to reduce truncation
             try:
@@ -3628,6 +3745,36 @@ def create_app_legacy_disabled():
                 generate_kwargs['max_time'] = max_time
 
             streamer = TextIteratorStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True)
+            
+            # Stop tokens for Phi-3
+            # Phi-3 uses <|end|> as EOS.
+            try:
+                generate_kwargs['eos_token_id'] = tokenizer.eos_token_id
+                generate_kwargs['pad_token_id'] = tokenizer.eos_token_id
+            except Exception:
+                pass
+
+            # Custom Stopping Criteria to prevent hallucinations
+            class StopStringCriteria(StoppingCriteria):
+                def __init__(self, tokenizer, stop_strings):
+                    self.tokenizer = tokenizer
+                    self.stop_strings = stop_strings
+
+                def __call__(self, input_ids, scores, **kwargs):
+                    # Decode the last few tokens to check for stop strings
+                    # We only check the newly generated part, but input_ids includes prompt.
+                    # Optimization: just check the end of the decoded text.
+                    text = self.tokenizer.decode(input_ids[0], skip_special_tokens=False)
+                    # print(f"DEBUG: Generated text end: {text[-50:]!r}") # Too noisy
+                    for s in self.stop_strings:
+                        if text.endswith(s):
+                            print(f"DEBUG: Stopping on string: {s!r}")
+                            return True
+                    return False
+
+            stop_strings = ["<|user|>", "<|assistant|>", "User:", "Assistant:", "<|end|>", "\nUser:", "\nAssistant:"]
+            stopping_criteria = StoppingCriteriaList([StopStringCriteria(tokenizer, stop_strings)])
+            generate_kwargs['stopping_criteria'] = stopping_criteria
 
             def run_generate():
                 with no_grad_ctx():
