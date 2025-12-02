@@ -15,9 +15,14 @@ import axios from 'axios';
 import PropTypes from 'prop-types';
 import { ChachaCanvas } from './Bot';
 
+import VoiceActivityBox from 'components/VoiceActivityBox';
+
 const ChatBot = ({ setIsSpeaking }) => {
 	const { t } = useTranslation();
 	const { settings } = useSettings();
+
+	// Local state to track TTS playback for the UI indicator
+	const [isSpeakingLocal, setIsSpeakingLocal] = useState(false);
 
 	const samplePhrases = [
 		t('chat.sample1'),
@@ -265,18 +270,25 @@ const ChatBot = ({ setIsSpeaking }) => {
 			const blob = await response.blob();
 			const audioUrl = URL.createObjectURL(blob);
 			const audio = new Audio(audioUrl);
-			audio.onended = () => { try { URL.revokeObjectURL(audioUrl); } catch { } };
+			audio.onended = () => {
+				try { URL.revokeObjectURL(audioUrl); } catch { }
+				setIsSpeakingLocal(false);
+			};
+			audio.onpause = () => setIsSpeakingLocal(false);
 			try {
+				setIsSpeakingLocal(true);
 				await audio.play();
 				console.debug('TTS playback started');
 				setPendingTTS(null);
 			} catch (playErr) {
 				console.warn('Browser blocked autoplay or playback failed; user gesture may be required', playErr);
+				setIsSpeakingLocal(false);
 				// Store pending so UI can show manual play button
 				setPendingTTS({ audioUrl, text });
 			}
 		} catch (err) {
 			console.error('TTS error:', err);
+			setIsSpeakingLocal(false);
 		}
 	}
 	const [message, setMessage] = useState('');
@@ -819,6 +831,7 @@ const ChatBot = ({ setIsSpeaking }) => {
 						<aside className='left-rail'>
 							<div id='chacha-3d-mount' className='model-holder chacha-3d-pill relative flex items-center justify-center'>
 								<ChachaCanvas />
+								<VoiceActivityBox active={isSpeakingLocal} />
 							</div>
 						</aside>
 
@@ -889,9 +902,14 @@ const ChatBot = ({ setIsSpeaking }) => {
 													onClick={() => {
 														try {
 															const a = new Audio(pendingTTS.audioUrl);
-															a.onended = () => { try { URL.revokeObjectURL(pendingTTS.audioUrl); } catch { } };
-															a.play().then(() => setPendingTTS(null)).catch(() => { /* ignore */ });
-														} catch { /* ignore */ }
+															a.onended = () => {
+																try { URL.revokeObjectURL(pendingTTS.audioUrl); } catch { }
+																setIsSpeakingLocal(false);
+															};
+															a.onpause = () => setIsSpeakingLocal(false);
+															setIsSpeakingLocal(true);
+															a.play().then(() => setPendingTTS(null)).catch(() => { setIsSpeakingLocal(false); });
+														} catch { setIsSpeakingLocal(false); }
 													}}
 													className='px-2 py-1 bg-black/30 hover:bg-black/50 rounded'
 												>
