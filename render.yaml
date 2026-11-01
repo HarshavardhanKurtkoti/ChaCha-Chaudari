@@ -2,8 +2,8 @@ services:
   - type: web
     name: chacha-chaudari-api
     env: docker
-    dockerfilePath: backend/Dockerfile
-    dockerContext: backend
+    dockerfilePath: Dockerfile
+    dockerContext: .
     plan: free
     region: oregon
     healthCheckPath: /health
@@ -20,4 +20,3 @@ services:
         value: "false"
       - key: CORS_ORIGINS
         value: "*"
-
