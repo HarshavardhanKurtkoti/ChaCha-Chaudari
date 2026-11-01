@@ -32,17 +32,23 @@ def create_app() -> Flask:
     app.config["SECRET_KEY"] = Config.SECRET_KEY
     app.config["JSON_AS_ASCII"] = False
 
-    # 1. Setup CORS
+    # 1. Setup CORS: Public open access for /health, strict origin restriction for all other API endpoints
     allowed_origins = Config.get_cors_origins()
     CORS(
         app,
-        origins=allowed_origins,
+        resources={
+            r"/health*": {"origins": "*"},
+            r"/api/health*": {"origins": "*"},
+            r"/*": {
+                "origins": allowed_origins,
+                "supports_credentials": True,
+            },
+        },
         allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
         methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        supports_credentials=True,
         max_age=86400,
     )
-    log.info("Configured CORS for origins: %s", allowed_origins)
+    log.info("Configured CORS: /health is public (*), other endpoints restricted to: %s", allowed_origins)
 
     # 2. Setup Rate Limiting (Phase 22)
     try:
