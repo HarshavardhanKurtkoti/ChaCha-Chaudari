@@ -22,7 +22,7 @@ class Config:
     DEBUG: bool = os.getenv("FLASK_DEBUG", "0") in ("1", "true", "True")
 
     # CORS configuration
-    FRONTEND_URL: str = os.getenv("FRONTEND_URL", "")
+    FRONTEND_URL: str = os.getenv("CORS_ORIGINS") or os.getenv("FRONTEND_URL", "")
     _DEFAULT_ORIGINS = [
         "http://localhost:5173",
         "http://127.0.0.1:5173",
@@ -33,6 +33,8 @@ class Config:
     @classmethod
     def get_cors_origins(cls) -> List[str]:
         if cls.FRONTEND_URL:
+            if cls.FRONTEND_URL.strip() == "*":
+                return ["*"]
             origins = [o.strip() for o in cls.FRONTEND_URL.split(",") if o.strip()]
             for d in cls._DEFAULT_ORIGINS:
                 if d not in origins:
