@@ -1,4 +1,5 @@
-import React, { useContext, useEffect, useMemo, useState } from 'react';
+import { useContext, useEffect, useMemo, useState } from 'react';
+import Achievements from 'components/Achievements';
 import { AuthUIContext } from 'context/AuthUIContext';
 import useSiteTimer from 'hooks/useSiteTimer';
 import SettingsPanel from 'components/SettingsPanel';
@@ -51,7 +52,7 @@ const Account = () => {
             } catch (e) { /* ignore */ }
           }
           setProfile(p);
-          if (p.age && !ageInput) setAgeInput(String(p.age));
+          setAgeInput((prev) => (!prev && p.age ? String(p.age) : prev));
         }
       } catch { /* ignore */ }
     };
@@ -183,6 +184,10 @@ const Account = () => {
                   <div className="text-xl font-semibold mt-1">{game.achievements?.length || 0}</div>
                 </div>
               </div>
+            </div>
+
+            <div className="mt-6">
+              <Achievements unlockedIds={game.achievements} />
             </div>
           </div>
 

@@ -23,10 +23,12 @@
     "@react-three/drei": "^9.56.7",
     "@react-three/fiber": "^8.13.2",
     "axios": "^1.5.0",
-  "canvas-confetti": "^1.9.3",
-  "framer-motion": "^11.2.10",
     "bhashini-translation": "^1.0.4",
+    "canvas-confetti": "^1.9.3",
     "embla-carousel-react": "^7.0.0",
+    "framer-motion": "^11.2.10",
+    "gsap": "^3.15.0",
+    "lucide-react": "^1.66.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-icons": "^4.11.0",
@@ -41,6 +43,8 @@
     "three": "^0.152.2"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.4.2",
+    "@testing-library/react": "^14.0.0",
     "@types/react": "^18.2.15",
     "@types/react-dom": "^18.2.7",
     "@vitejs/plugin-react": "^4.0.3",
@@ -50,15 +54,13 @@
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-react-refresh": "^0.4.3",
     "i": "^0.3.7",
+    "jsdom": "^24.0.0",
     "npm": "^10.1.0",
     "postcss": "^8.4.29",
+    "source-map-explorer": "^2.5.3",
     "tailwindcss": "^3.3.3",
     "vite": "^4.4.5",
     "vite-jsconfig-paths": "^2.0.1",
-  "vitest": "^1.6.0",
-  "source-map-explorer": "^2.5.3",
-    "@testing-library/react": "^14.0.0",
-    "@testing-library/jest-dom": "^6.4.2",
-    "jsdom": "^24.0.0"
+    "vitest": "^1.6.0"
   }
 }

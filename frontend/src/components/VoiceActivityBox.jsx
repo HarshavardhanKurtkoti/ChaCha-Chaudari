@@ -1,6 +1,6 @@
-import React from 'react';
+import PropTypes from 'prop-types';
 
-const VoiceActivityBox = ({ active }) => {
+const VoiceActivityBox = ({ active = false }) => {
     // Use a high z-index and ensure pointer events don't block interaction
     if (!active) return null;
 
@@ -41,6 +41,10 @@ const VoiceActivityBox = ({ active }) => {
             </div>
         </div>
     );
+};
+
+VoiceActivityBox.propTypes = {
+    active: PropTypes.bool,
 };
 
 export default VoiceActivityBox;

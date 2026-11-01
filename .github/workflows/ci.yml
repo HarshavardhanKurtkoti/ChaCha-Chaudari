@@ -1,0 +1,72 @@
+name: SmartGanga Mascot CI
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
+
+jobs:
+  frontend:
+    name: Frontend Tests & Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: frontend/package.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci || npm install
+
+      - name: Run Vitest unit tests
+        working-directory: frontend
+        run: npm test
+
+      - name: Run Vite production build
+        working-directory: frontend
+        run: npm run build
+        env:
+          VITE_API_BASE_URL: http://127.0.0.1:5000
+          VITE_TTS_BASE_URL: http://127.0.0.1:6001
+
+  backend:
+    name: Backend Tests & Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+          pip install pytest pytest-mock flake8
+
+      - name: Syntax and lint check
+        run: |
+          flake8 backend --count --select=E9,F63,F7,F82 --show-source --statistics
+
+      - name: Run backend pytest suite
+        run: |
+          pytest backend/tests -v
+        env:
+          FLASK_ENV: testing
+          ENABLE_LOCAL_LLM: false
+          SECRET_KEY: ci-test-secret-key-32-chars-long-chacha
+          MONGODB_URI: mongodb://localhost:27017/test_chachadb
+

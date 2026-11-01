@@ -1,43 +1,53 @@
 import React, { Suspense, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 const ChatBot = React.lazy(() => import('./ChatBot'));
 
 const Chat = () => {
-  // Ensure we are at the top when this page mounts (helps with route transitions)
+  const location = useLocation();
+
   useEffect(() => {
-    // Use rAF twice to run after layout/transition completes and also set a short timeout
     const runScrollTop = () => {
       try {
-        // robustly reset all scroll roots
         window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
         if (document.documentElement) document.documentElement.scrollTop = 0;
         if (document.body) document.body.scrollTop = 0;
       } catch (e) { void e; }
 
-      // Try to focus the chat input if ChatBot has rendered an input element, but prevent scrolling
       try {
         const input = document.querySelector('.chat-input, input[type="text"], textarea');
         if (input && typeof input.focus === 'function') {
-          // preventScroll option avoids moving page position when focusing
           try {
             input.focus({ preventScroll: true });
-          } catch (err) {
-            // fallback if browser doesn't support preventScroll
+          } catch {
             input.focus();
           }
         }
-      } catch (err) { void err; }
+      } catch { /* ignore */ }
     };
 
     requestAnimationFrame(() => requestAnimationFrame(() => runScrollTop()));
-    // Also run once more after a small timeout to cover animated transitions
     const t = setTimeout(runScrollTop, 220);
     return () => clearTimeout(t);
   }, []);
+
   return (
-    <section className="relative w-full min-h-[calc(100vh-4rem)] bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
-      <div className="max-w-7xl mx-auto px-4 py-6 md:py-8">
-        <Suspense fallback={<div className='text-gray-300'>Loading chat…</div>}>
-          <ChatBot />
+    <section className="relative w-full min-h-screen bg-surface-950 text-slate-100 pt-24 pb-16 px-4 sm:px-6 overflow-hidden">
+      {/* Background Ambience */}
+      <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
+        <div className="absolute top-[-10%] left-[-10%] w-[50vw] h-[50vw] rounded-full bg-ganga-600/10 blur-[150px]" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-[50vw] h-[50vw] rounded-full bg-emerald-600/10 blur-[150px]" />
+      </div>
+
+      <div className="relative z-10 max-w-7xl mx-auto">
+        <Suspense
+          fallback={
+            <div className="flex flex-col items-center justify-center min-h-[60vh] gap-3 text-slate-400">
+              <div className="w-8 h-8 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />
+              <span className="text-xs font-mono">Initializing Chacha Intelligence...</span>
+            </div>
+          }
+        >
+          <ChatBot initialPrompt={location.state?.initialPrompt} />
         </Suspense>
       </div>
     </section>

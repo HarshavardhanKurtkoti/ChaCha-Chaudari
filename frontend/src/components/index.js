@@ -1,5 +1,13 @@
-export { default as Welcome} from "./Welcome";
-export { default as ChatMessage} from "./ChatMessage";
+export { default as Welcome } from "./Welcome";
+export { default as ChatMessage } from "./ChatMessage";
 export { default as Carousel } from './CarouselComp';
 export { default as NavBar } from './NavBar';
 export { default as SelectLang } from './SelectLang';
+export { default as TiltCard } from './TiltCard';
+export { default as CarouselsReco } from './CarouselsReco';
+export { default as Achievements } from './Achievements';
+export { default as ConfettiCanvas } from './ConfettiCanvas';
+export { default as ParallaxLayer } from './ParallaxLayer';
+export { default as AchievementModal } from './AchievementModal';
+export { default as DailyReward } from './DailyReward';
+export { default as Leaderboard } from './Leaderboard';

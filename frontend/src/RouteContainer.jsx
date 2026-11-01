@@ -10,6 +10,7 @@ const RiverineEcology = React.lazy(() => import('pages/RiverineEcology'));
 const WarRoom_museum = React.lazy(() => import('pages/WarRoom_museum'));
 const Chat = React.lazy(() => import('pages/Chat'));
 const Account = React.lazy(() => import('pages/Account'));
+const NotFound = React.lazy(() => import('pages/NotFound'));
 
 import NavBar from 'components/NavBar';
 import Footer from 'components/Footer';
@@ -47,6 +48,7 @@ const RouteContainer = () => {
               <Route path='/games' element={<Page><Games /></Page>} />
               <Route path='/chat' element={<Page variant="scale"><Chat /></Page>} />
               <Route path='/account' element={<Page><Account /></Page>} />
+              <Route path='*' element={<Page><NotFound /></Page>} />
             </Routes>
           </AnimatePresence>
         </main>

@@ -1,12 +1,27 @@
 export function decodeJwt(token) {
   try {
-    const [, payload] = token.split('.');
+    if (!token || typeof token !== 'string') return null;
+    const parts = token.split('.');
+    if (parts.length < 2) return null;
+    const payload = parts[1];
     const base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
-    const json = decodeURIComponent(atob(base64).split('').map(c => '%'+('00'+c.charCodeAt(0).toString(16)).slice(-2)).join(''));
+    const json = decodeURIComponent(
+      atob(base64)
+        .split('')
+        .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+        .join('')
+    );
     return JSON.parse(json);
   } catch {
     return null;
   }
+}
+
+export function isTokenExpired(token) {
+  if (!token) return true;
+  const decoded = decodeJwt(token);
+  if (!decoded || !decoded.exp) return false;
+  return decoded.exp * 1000 <= Date.now();
 }
 
 export function passwordStrength(pwd) {

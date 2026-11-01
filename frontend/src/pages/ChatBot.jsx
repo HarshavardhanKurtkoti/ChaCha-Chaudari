@@ -1,3 +1,5 @@
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { Fragment, useContext, useEffect, useRef, useState } from 'react';
 import { useSettings } from 'context/SettingsContext';
 import { useTranslation } from 'hooks/useTranslation';
@@ -5,6 +7,7 @@ import '../styles/hide-scrollbar.css';
 import './ChatBot.css';
 import { Welcome } from 'components';
 import { BsMic } from 'react-icons/bs';
+import { Sparkles, RotateCcw, Volume2, VolumeX, Send, ArrowRight, MessageSquare, Bot as BotIcon } from 'lucide-react';
 import { HiOutlineSpeakerWave, HiOutlineSpeakerXMark } from 'react-icons/hi2';
 
 import { useMessageContext } from 'context/MessageProvider';
@@ -12,12 +15,13 @@ import { BotStateContext } from 'context/BotState';
 import SelectLang from 'components/SelectLang';
 import SpeechRecognition, { useSpeechRecognition } from 'react-speech-recognition';
 import axios from 'axios';
+import { API_BASE_URL, TTS_BASE_URL } from 'config/api';
 import PropTypes from 'prop-types';
 import { ChachaCanvas } from './Bot';
 
 import VoiceActivityBox from 'components/VoiceActivityBox';
 
-const ChatBot = ({ setIsSpeaking }) => {
+const ChatBot = ({ setIsSpeaking, initialPrompt }) => {
 	const { t } = useTranslation();
 	const { settings } = useSettings();
 
@@ -237,10 +241,8 @@ const ChatBot = ({ setIsSpeaking }) => {
 	// Play TTS audio for assistant responses
 	async function playTTS(text) {
 		try {
-			// Prefer env-configured TTS base, fallback to local proxy
-			const envBase = (import.meta?.env?.VITE_TTS_BASE_URL || '').trim();
-			const forcedBase = 'http://127.0.0.1:6001';
-			const apiBase = envBase || forcedBase;
+			// Use centralized TTS configuration
+			const apiBase = TTS_BASE_URL;
 			console.debug('playTTS base resolved', { apiBase, origin: window.location.origin });
 			// Determine the voice to send:
 			// 1) Prefer explicit user selection stored in settings (use ref to avoid stale closures)
@@ -281,8 +283,12 @@ const ChatBot = ({ setIsSpeaking }) => {
 						body: JSON.stringify({ text, voice: voiceToSend, rate: settings?.ttsRate, lang: settings?.ttsLang || 'en-IN' }),
 					});
 				} catch (e) { /* no-op */ }
-				if (!response.ok) return;
+				if (!response.ok) {
+					setTtsOffline(true);
+					return;
+				}
 			}
+			setTtsOffline(false);
 			const blob = await response.blob();
 			const audioUrl = URL.createObjectURL(blob);
 			const audio = new Audio(audioUrl);
@@ -316,6 +322,12 @@ const ChatBot = ({ setIsSpeaking }) => {
 		}
 	}
 	const [message, setMessage] = useState('');
+
+	useEffect(() => {
+		if (initialPrompt && typeof initialPrompt === 'string' && initialPrompt.trim()) {
+			setMessage(initialPrompt.trim());
+		}
+	}, [initialPrompt]);
 	const { botState, setBotState } = useContext(BotStateContext);
 	const [isTyping, setIsTyping] = useState(false);
 	const [state, setState] = useState('idle');
@@ -337,6 +349,7 @@ const ChatBot = ({ setIsSpeaking }) => {
 
 	const { transcript, listening, resetTranscript, browserSupportsSpeechRecognition } = useSpeechRecognition();
 	const [voiceError, setVoiceError] = useState(null);
+	const [ttsOffline, setTtsOffline] = useState(false);
 	const [speechApiSupported, setSpeechApiSupported] = useState(false);
 	const [mediaDevicesSupported, setMediaDevicesSupported] = useState(false);
 	const [secureContextFlag, setSecureContextFlag] = useState(false);
@@ -426,13 +439,10 @@ const ChatBot = ({ setIsSpeaking }) => {
 		// console.log(state, listening);
 	}, [state]);
 
-	// Resolve API base robustly across dev/prod/preview
+	// Use centralized API configuration
 	const isViteDev = !!(typeof import.meta !== 'undefined' && import.meta?.env?.DEV);
 	const isViteDevPort = /:(5173|5174)$/i.test(window.location.origin || '');
-	const resolvedApiBase = (isViteDev || isViteDevPort)
-		? '/api'
-		: (import.meta?.env?.VITE_API_BASE_URL || window.location.origin || '').replace(/\/$/, '');
-	const baseURL = resolvedApiBase;
+	const baseURL = API_BASE_URL || (isViteDev || isViteDevPort ? '/api' : '');
 
 	const api = axios.create({
 		baseURL: baseURL,
@@ -500,6 +510,7 @@ const ChatBot = ({ setIsSpeaking }) => {
 
 	// Streamed response reader (NDJSON with lines like {"delta":"..."} and final {"done":true})
 	const streamResponse = async (userdata, options = {}) => {
+		let created = false;
 		try {
 			let ageGroup = null;
 			let name = undefined;
@@ -548,11 +559,13 @@ const ChatBot = ({ setIsSpeaking }) => {
 				} catch (e) {
 					console.error('fallback /llama-chat failed', e);
 					setState('idle');
+					if (!created) {
+						addMessage('assistant', 'I am currently unable to reach the Ganga intelligence backend. Please verify that the backend service is running on http://127.0.0.1:5000.');
+					}
 					return;
 				}
 			}
 			setState('thinking');
-			let created = false;
 			// Collect the full assistant text locally so we can TTS it reliably
 			let finalText = '';
 			if (setIsSpeaking && audio) setIsSpeaking(true);
@@ -585,8 +598,21 @@ const ChatBot = ({ setIsSpeaking }) => {
 						} else if (obj.done) {
 							// meta end; could use for telemetry if needed
 						}
-					} catch { }
+					} catch (e) { /* ignore partial line */ }
 				}
+			}
+			if (buffer.trim()) {
+				try {
+					const obj = JSON.parse(buffer.trim());
+					if (obj.delta) {
+						if (!created && !options.appendToLast) {
+							addMessage('assistant', '');
+							created = true;
+						}
+						updateLastAssistant(String(obj.delta));
+						finalText += String(obj.delta);
+					}
+				} catch (e) { /* ignore trailing non-JSON */ }
 			}
 			setState('idle');
 			if (setIsSpeaking) setIsSpeaking(false);
@@ -605,7 +631,7 @@ const ChatBot = ({ setIsSpeaking }) => {
 			// offer a 'Continue?' action that will append more tokens to the same bubble.
 			try {
 				const longEnough = (finalText || '').trim().length > 800;
-				const endsClean = /[\.!?\)]\s*$/.test((finalText || '').trim());
+				const endsClean = /[.!?)]\s*$/.test((finalText || '').trim());
 				if (longEnough && !endsClean) {
 					setContinueHint(true);
 					setContinueAppend(true);
@@ -617,6 +643,10 @@ const ChatBot = ({ setIsSpeaking }) => {
 		} catch (e) {
 			console.error('streamResponse error', e);
 			setState('idle');
+			if (setIsSpeaking) setIsSpeaking(false);
+			if (!created) {
+				addMessage('assistant', 'Sorry, I am having trouble connecting to the river intelligence right now. Please make sure the backend server is running and try again.');
+			}
 		}
 	};
 
@@ -782,40 +812,42 @@ const ChatBot = ({ setIsSpeaking }) => {
 	};
 
 	// Centralized send function used by button click and Enter key
-	const sendMessage = async () => {
+	const sendMessage = async (explicitText) => {
 		try {
+			const text = typeof explicitText === 'string' && explicitText.trim() ? explicitText.trim() : message;
+			if (!text) return;
 			// Any manual send cancels a pending continuation hint
 			setContinueHint(false);
 			setContinueAppend(false);
 			SpeechRecognition.stopListening();
 			resetTranscript();
 			setIsTyping(false);
-			if (message) {
-				addMessage('user', message);
-				setState('waiting');
-				SpeechRecognition.abortListening();
-				if (streamingEnabled) {
-					// Do not auto-continue; always request a single streamed answer
-					await streamResponse({ prompt: message, lang }, { autoContinueSegments: 0 });
-					setMessage('');
-					resetTranscript();
-				} else {
-					let resp = await getResponse({ prompt: message, lang }, '/llama-chat');
-					setMessage('');
-					resetTranscript();
-					setState('idle');
-					if (resp && resp.data && resp.data.result) {
-						addMessage('assistant', resp.data.result);
-						if (audio) {
-							playTTS(resp.data.result);
-							if (setIsSpeaking) setIsSpeaking(true);
-						} else {
-							if (setIsSpeaking) setIsSpeaking(false);
-						}
+			addMessage('user', text);
+			setState('waiting');
+			setMessage('');
+			resetTranscript();
+			SpeechRecognition.abortListening();
+			if (streamingEnabled) {
+				// Do not auto-continue; always request a single streamed answer
+				await streamResponse({ prompt: text, lang }, { autoContinueSegments: 0 });
+			} else {
+				let resp = await getResponse({ prompt: text, lang }, '/llama-chat');
+				setState('idle');
+				if (resp && resp.data && resp.data.result) {
+					addMessage('assistant', resp.data.result);
+					if (audio) {
+						playTTS(resp.data.result);
+						if (setIsSpeaking) setIsSpeaking(true);
+					} else {
+						if (setIsSpeaking) setIsSpeaking(false);
 					}
 				}
 			}
-		} catch (e) { console.error('sendMessage error', e); }
+		} catch (e) {
+			console.error('sendMessage error', e);
+			setState('idle');
+			addMessage('assistant', 'Sorry, I am having trouble connecting to the river intelligence right now. Please verify that the backend server is running on http://127.0.0.1:5000.');
+		}
 	};
 
 	const handleaudio = () => {
@@ -838,7 +870,7 @@ const ChatBot = ({ setIsSpeaking }) => {
 	};
 
 	return (
-		<main className='relative overflow-hidden bg-gray-900 bg-opacity-95 md:rounded-lg md:shadow-md p-4 pt-2 pb-3 w-full flex flex-col'>
+		<main className='relative overflow-hidden bento-card border border-white/10 shadow-2xl p-4 sm:p-6 w-full flex flex-col min-h-[700px]'>
 			{/* Gradient animated background */}
 			<div className='chat-gradient-background' aria-hidden>
 				<div className='gradient-sphere sphere-1' />
@@ -860,29 +892,37 @@ const ChatBot = ({ setIsSpeaking }) => {
 						</aside>
 
 						<section className='right-panel'>
-							<div className='flex items-center justify-between mb-4'>
-								<h1 className='text-2xl md:text-3xl font-extrabold text-white text-center flex-1'>
-									{t('chat.title')}
-									<span className='block text-blue-300 mt-2 text-lg md:text-xl font-semibold'>{t('chat.subtitle')}</span>
-								</h1>
+							<div className='flex flex-wrap items-center justify-between gap-3 mb-4 pb-3 border-b border-white/8'>
+								<div className='flex items-center gap-3'>
+									<div className='w-9 h-9 rounded-xl bg-gradient-to-tr from-ganga-600 to-cyan-400 p-0.5 shadow-glow-cyan flex items-center justify-center shrink-0'>
+										<div className='w-full h-full bg-surface-950 rounded-[10px] flex items-center justify-center'>
+											<Sparkles className='w-4 h-4 text-cyan-300' />
+										</div>
+									</div>
+									<div>
+										<h2 className='text-sm sm:text-base font-bold font-headline text-white flex items-center gap-2'>
+											<span>Chacha Chaudhary</span>
+											<span className='px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-[10px] font-mono text-emerald-300'>Active</span>
+										</h2>
+										<p className='text-[11px] text-slate-400 font-sans'>Namami Gange Intelligence & Conservation</p>
+									</div>
+								</div>
 								<div className='flex items-center gap-2'>
 									<button
-										className='text-xs md:text-sm px-3 py-2 rounded-md bg-gray-800 text-gray-100 border border-gray-600 hover:bg-gray-700'
+										className='flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-semibold text-slate-300 hover:text-white border border-white/10 transition-all'
 										onClick={() => { resetHistory(); setState('idle'); setMessage(''); setContinueHint(false); setContinueAppend(false); }}
+										title='Start a fresh conversation'
 									>
-										{t('chat.newChat')}
+										<RotateCcw className='w-3.5 h-3.5' />
+										<span className='hidden sm:inline'>{t('chat.newChat') || 'New Chat'}</span>
 									</button>
 									<button
-										className='text-xs md:text-sm px-3 py-2 rounded-md bg-gray-800 text-gray-100 border border-gray-600 hover:bg-gray-700 flex items-center gap-2'
+										className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${audio ? 'bg-cyan-500/15 border-cyan-500/40 text-cyan-300 shadow-glow-cyan' : 'bg-white/5 border-white/10 text-slate-400 hover:text-white'}`}
 										onClick={handleaudio}
-										title={audio ? 'Disable voice (no auto TTS)' : 'Enable voice (auto TTS)'}
+										title={audio ? 'Disable audio synthesis' : 'Enable audio synthesis'}
 									>
-										{audio ? (<><HiOutlineSpeakerWave /><span className='hidden md:inline'>{t('chat.voiceOn')}</span></>) : (<><HiOutlineSpeakerXMark /><span className='hidden md:inline'>{t('chat.voiceOff')}</span></>)}
+										{audio ? (<><Volume2 className='w-3.5 h-3.5 text-cyan-400 animate-pulse' /><span className='hidden sm:inline'>Voice On</span></>) : (<><VolumeX className='w-3.5 h-3.5 text-slate-400' /><span className='hidden sm:inline'>Voice Off</span></>)}
 									</button>
-									<label className='flex items-center gap-2 text-xs md:text-sm text-gray-300'>
-										<input type='checkbox' checked={streamingEnabled} onChange={(e) => setStreamingEnabled(e.target.checked)} />
-										{t('chat.streamReplies')}
-									</label>
 								</div>
 							</div>
 							{/* Messages card */}
@@ -893,18 +933,19 @@ const ChatBot = ({ setIsSpeaking }) => {
 											{/* Personalized wave if name known */}
 											{(() => { try { const p = JSON.parse(localStorage.getItem('userProfile') || 'null'); if (p?.name) return (<p className='text-gray-300 text-sm mb-2'>{t('chat.greetingPrefix')} {p.name} 👋 {t('chat.greetingSuffix')}</p>); } catch { } return null; })()}
 											<Welcome />
-											<div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3'>
-												{samplePhrases.map(phrase => (
+											<div className='grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1'>
+												{samplePhrases.map((phrase, idx) => (
 													<button
 														key={phrase}
-														onClick={async () => {
-															setMessage(phrase);
-															// Use a small delay to ensure the message state is set before sending
-															await new Promise(r => setTimeout(r, 50));
-															await sendMessage();
+														onClick={() => {
+															void sendMessage(phrase);
 														}}
-														className='bg-gray-100 border-gray-300 border-2 rounded-md p-2 text-sm'>
-														{phrase}
+														className='group text-left p-3.5 rounded-xl bg-surface-900/70 hover:bg-surface-850 border border-white/8 hover:border-ganga-400/40 text-slate-300 hover:text-white transition-all shadow-sm flex flex-col justify-between min-h-[95px]'>
+														<div className='flex items-center justify-between w-full mb-1'>
+															<span className='text-[10px] font-mono text-cyan-400'>PROMPT 0{idx + 1}</span>
+															<span className='text-[10px] text-slate-500 group-hover:text-cyan-300 transition-colors'>Ask →</span>
+														</div>
+														<span className='text-xs font-medium leading-relaxed'>{phrase}</span>
 													</button>
 												))}
 											</div>
@@ -912,8 +953,16 @@ const ChatBot = ({ setIsSpeaking }) => {
 									) : (
 										chatHistory.map((chat, i) => (
 											<div key={i} className={`flex ${chat.role === 'user' ? 'justify-end' : 'justify-start'} w-full`}>
-												<div className={`rounded-2xl px-4 py-3 shadow-sm max-w-[70%] text-sm font-medium ${chat.role === 'user' ? 'bg-blue-700 text-white' : 'bg-gray-800 text-gray-100'} mb-3`}>
-													{chat.content}
+												<div className={`rounded-2xl px-5 py-3.5 shadow-md max-w-[82%] text-sm ${chat.role === 'user' ? 'bg-gradient-to-r from-ganga-600 to-cyan-600 text-white font-medium ml-auto' : 'bg-surface-900/85 border border-white/8 text-slate-100 leading-relaxed'} mb-3.5`}>
+													{chat.role === 'user' ? (
+														chat.content
+													) : (
+														<div className="prose prose-invert prose-sm max-w-none text-slate-100 [&>p]:mb-2 [&>p:last-child]:mb-0 [&>ul]:list-disc [&>ul]:pl-5 [&>ol]:list-decimal [&>ol]:pl-5 [&>li]:mb-1 font-sans">
+															<ReactMarkdown remarkPlugins={[remarkGfm]}>
+																{chat.content}
+															</ReactMarkdown>
+														</div>
+													)}
 												</div>
 											</div>
 										))
@@ -950,13 +999,13 @@ const ChatBot = ({ setIsSpeaking }) => {
 									{/* Typing indicator bubble when assistant is thinking */}
 									{(state === 'waiting' || state === 'thinking') && (
 										<div className='flex justify-start w-full'>
-											<div className='rounded-2xl px-4 py-3 shadow-sm max-w-[60%] text-sm font-medium bg-gray-800 text-gray-300 mb-3'>
-												<span className='inline-flex items-center space-x-2'>
-													<span className='w-2 h-2 bg-gray-400 rounded-full animate-bounce' style={{ animationDelay: '0ms' }} />
-													<span className='w-2 h-2 bg-gray-400 rounded-full animate-bounce' style={{ animationDelay: '150ms' }} />
-													<span className='w-2 h-2 bg-gray-400 rounded-full animate-bounce' style={{ animationDelay: '300ms' }} />
-													<span className='ml-2'>{t('chat.thinking')}</span>
-												</span>
+											<div className='rounded-2xl px-5 py-3 shadow-md max-w-[70%] text-sm bg-surface-900/90 border border-white/10 text-cyan-200 mb-3.5 flex items-center gap-3'>
+												<div className='flex items-center space-x-1.5'>
+													<span className='w-2 h-2 bg-cyan-400 rounded-full animate-bounce' style={{ animationDelay: '0ms' }} />
+													<span className='w-2 h-2 bg-cyan-400 rounded-full animate-bounce' style={{ animationDelay: '150ms' }} />
+													<span className='w-2 h-2 bg-cyan-400 rounded-full animate-bounce' style={{ animationDelay: '300ms' }} />
+												</div>
+												<span className='text-xs font-mono text-cyan-300/80'>{t('chat.thinking') || 'Chacha Chaudhary is thinking...'}</span>
 											</div>
 										</div>
 									)}
@@ -976,6 +1025,21 @@ const ChatBot = ({ setIsSpeaking }) => {
 
 							{/* Input row inside the right panel */}
 							<div className='chat-box-input-field mt-3'>
+								{voiceError && (
+									<div className='mb-2 px-3 py-2 rounded-xl bg-red-900/60 border border-red-500/40 text-red-200 text-xs flex items-center justify-between shadow-sm'>
+										<div className='flex items-center gap-2'>
+											<span>🎙️</span>
+											<span>{voiceError}</span>
+										</div>
+										<button onClick={() => setVoiceError(null)} className='text-red-300 hover:text-white text-xs px-2 py-0.5' aria-label='Dismiss mic error'>✕</button>
+									</div>
+								)}
+								{ttsOffline && audio && (
+									<div className='mb-2 px-3 py-1.5 rounded-xl bg-amber-900/40 border border-amber-500/30 text-amber-200 text-xs flex items-center justify-between'>
+										<span>🔇 TTS proxy unreachable (answers will display in text mode)</span>
+										<button onClick={() => setTtsOffline(false)} className='text-amber-300 hover:text-white text-xs px-1' aria-label='Dismiss TTS status'>✕</button>
+									</div>
+								)}
 								<div className='chat-pill-container'>
 									<div className='chat-pill' role='search'>
 										<div className='chat-pill__left'>
@@ -1029,6 +1093,7 @@ const ChatBot = ({ setIsSpeaking }) => {
 												aria-label='Send'
 											>
 												<span className='chat-pill__send-text'>{t('chat.send')}</span>
+												<Send className='w-3.5 h-3.5' />
 											</button>
 										</div>
 									</div>
@@ -1045,6 +1110,7 @@ const ChatBot = ({ setIsSpeaking }) => {
 export default ChatBot;
 
 ChatBot.propTypes = {
+	initialPrompt: PropTypes.string,
 	setIsSpeaking: PropTypes.func,
 };
 
@@ -1081,3 +1147,9 @@ function VisualizerBar({ idx, analyserRef, listening }) {
 	}, [analyserRef, idx, listening]);
 	return <div ref={ref} style={{ width: 6, height: 6, background: 'linear-gradient(180deg,#60a5fa,#0369a1)', borderRadius: 3 }} className='transform-gpu' />;
 }
+
+VisualizerBar.propTypes = {
+	idx: PropTypes.number.isRequired,
+	analyserRef: PropTypes.shape({ current: PropTypes.any }),
+	listening: PropTypes.bool,
+};

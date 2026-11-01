@@ -1,330 +1,420 @@
 import { useEffect, useRef, useState, Suspense, lazy } from 'react';
 import { motion } from 'framer-motion';
-import CarouselComp from '../components/CarouselComp';
-import GreetingPopup from './Greeting';
+import { useNavigate } from 'react-router-dom';
+import gsap from 'gsap';
 import { useTranslation } from 'hooks/useTranslation';
+import CarouselsReco from 'components/CarouselsReco';
+import {
+  MessageSquare,
+  Sparkles,
+  Compass,
+  Waves,
+  Landmark,
+  Gamepad2,
+  ArrowRight,
+  ShieldCheck,
+  Flame,
+  Zap,
+  Activity,
+  Globe,
+  Award,
+  ChevronRight,
+  Play
+} from 'lucide-react';
 
-const ChatBot = lazy(() => import('./ChatBot'));
 const Bot = lazy(() => import('./Bot'));
 
 const Home = () => {
-  const { t } = useTranslation();
-  const initialGreeting = (() => {
-    if (typeof window === 'undefined') return false;
-    if (window.location.hash === '#about') return false;
-    try { return !localStorage.getItem('greetingShownOnce'); } catch { return true; }
-  })();
+  const { t, i18n } = useTranslation();
+  const navigate = useNavigate();
+  const [loadBot, setLoadBot] = useState(true);
+  const heroRef = useRef(null);
+  const bentoRef = useRef(null);
 
-  const [showGreeting, setShowGreeting] = useState(initialGreeting);
-  const [showChat, setShowChat] = useState(false);
-  const [loadBot, setLoadBot] = useState(false);
-  const [vw, setVw] = useState(() => (typeof window !== 'undefined' ? window.innerWidth : 1400));
-  const isNarrow = vw < 1280;
-  const botContainerRef = useRef(null);
-
+  // Initial greeting audio (once per session)
   useEffect(() => {
-    const onResize = () => setVw(window.innerWidth);
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
+    try {
+      const shown = sessionStorage.getItem('greetingAudioPlayed');
+      if (!shown) {
+        sessionStorage.setItem('greetingAudioPlayed', '1');
+        const audio = new Audio('/assets/chacha-cahaudhary/Greeting.wav');
+        audio.volume = 0.5;
+        const playPromise = audio.play();
+        if (playPromise !== undefined) {
+          playPromise.catch(() => {
+            // Browser autoplay blocked until user gesture
+          });
+        }
+      }
+    } catch { /* ignore */ }
   }, []);
 
+  // GSAP subtle entrance animation
   useEffect(() => {
-    if (loadBot) return;
-    const el = botContainerRef.current;
-    if (!el || typeof IntersectionObserver === 'undefined') return;
-    const io = new IntersectionObserver((entries) => {
-      for (const e of entries) {
-        if (e.isIntersecting) {
-          setLoadBot(true);
-          io.disconnect();
-          break;
-        }
-      }
-    }, { root: null, threshold: 0.25 });
-    io.observe(el);
-    return () => io.disconnect();
-  }, [loadBot]);
+    const ctx = gsap.context(() => {
+      gsap.from('.gsap-hero-title', {
+        y: 30,
+        opacity: 0,
+        duration: 1,
+        ease: 'power3.out',
+      });
+      gsap.from('.gsap-bento-card', {
+        y: 40,
+        opacity: 0,
+        duration: 0.8,
+        stagger: 0.12,
+        ease: 'power2.out',
+        delay: 0.3,
+      });
+    }, heroRef);
 
-  useEffect(() => {
-    if (!showGreeting) return;
-    try { localStorage.setItem('greetingShownOnce', '1'); } catch { }
-    const audio = new Audio('/assets/chacha-cahaudhary/Greeting.wav');
-    let played = false;
-    const playGreeting = (userInitiated = false) => {
-      if (!played) {
-        played = true;
-        audio.play().catch(() => { });
-        if (userInitiated) {
-          setTimeout(() => window.dispatchEvent(new CustomEvent('activate-chatbot-voice', { detail: { message: 'hello', userInitiated: true } })), 1500);
-        }
-        window.removeEventListener('click', clickHandler);
-        window.removeEventListener('keydown', clickHandler);
-      }
-    };
-    const clickHandler = () => playGreeting(true);
-    audio.play().catch(() => {
-      window.addEventListener('click', clickHandler);
-      window.addEventListener('keydown', clickHandler);
-    });
-    return () => {
-      audio.pause();
-      audio.currentTime = 0;
-      window.removeEventListener('click', playGreeting);
-      window.removeEventListener('keydown', playGreeting);
-    };
-  }, [showGreeting]);
+    return () => ctx.revert();
+  }, []);
 
-  // Premium Glass Card Style
-  const glassCardClass = "bg-white/10 backdrop-blur-lg border border-white/20 shadow-xl rounded-3xl overflow-hidden";
-  const textGradient = "bg-gradient-to-r from-blue-600 to-cyan-500 bg-clip-text text-transparent";
+  const samplePrompts = [
+    { text: 'Tell me about the Ganges River Dolphin', lang: 'en', icon: '🐬' },
+    { text: 'गंगा आरती और दशाश्वमेध घाट का इतिहास', lang: 'hi', icon: '🪔' },
+    { text: 'How do Sewage Treatment Plants protect the river?', lang: 'en', icon: '💧' },
+    { text: 'नमामि गंगे मिशन के प्रमुख उद्देश्य क्या हैं?', lang: 'hi', icon: '🌿' },
+  ];
+
+  const handleLaunchChat = (promptText = '') => {
+    navigate('/chat', { state: { initialPrompt: promptText } });
+  };
 
   return (
-    <section className="relative w-full min-h-screen bg-gray-900 text-gray-100 overflow-hidden font-sans">
-      {/* Animated Background */}
-      <div className="absolute inset-0 z-0 pointer-events-none">
-        <div className="absolute inset-0 bg-gradient-to-br from-gray-900 via-slate-900 to-black" />
-        <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] rounded-full bg-blue-600/20 blur-[120px] animate-pulse" />
-        <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] rounded-full bg-cyan-500/10 blur-[120px] animate-pulse" style={{ animationDelay: '2s' }} />
+    <div className="relative w-full min-h-screen bg-surface-950 text-slate-100 overflow-x-hidden pt-20">
+      {/* Dynamic Spatial Mesh Background (ThreeUI / 21st.dev inspired) */}
+      <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
+        <div className="absolute top-[-10%] left-[-10%] w-[55vw] h-[55vw] rounded-full bg-ganga-600/12 blur-[140px] animate-pulse-slow" />
+        <div className="absolute bottom-[-15%] right-[-10%] w-[60vw] h-[60vw] rounded-full bg-emerald-500/10 blur-[150px] animate-pulse-slow" style={{ animationDelay: '3s' }} />
+        <div className="absolute top-[35%] right-[20%] w-[40vw] h-[40vw] rounded-full bg-cyan-500/8 blur-[120px]" />
+        {/* Subtle grid lines */}
+        <div className="absolute inset-0 bg-[linear-gradient(to_right,rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:4rem_4rem] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_0%,#000_70%,transparent_100%)] opacity-40" />
       </div>
 
-      <div className="relative z-10 w-full flex items-center justify-center pt-12 pb-16">
-        <div className={`w-full max-w-[1400px] mx-auto flex flex-wrap justify-center gap-8 px-4 ${isNarrow ? 'flex-col' : ''}`}>
+      <div ref={heroRef} className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-24">
+        {/* =========================================================================
+            1. HERO SECTION: Spatial Typography + 3D Mascot Pedestal
+           ========================================================================= */}
+        <section className="grid lg:grid-cols-12 gap-8 lg:gap-12 items-center pt-8 pb-16 min-h-[calc(100vh-6rem)]">
+          {/* Left Column: Editorial Headline & Actions */}
+          <div className="lg:col-span-7 flex flex-col justify-center space-y-6">
+            {/* Master Headline */}
+            <h1 className="gsap-hero-title font-headline text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight leading-[1.1]">
+              The Living Spirit of{' '}
+              <span className="gradient-text-cyan">River Ganga</span>,{' '}
+              <span className="gradient-text-gold">Reimagined</span>.
+            </h1>
 
-          {/* Left Column: Carousel + Intro */}
-          <div className="flex flex-col gap-6 flex-1 max-w-xl">
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6 }}
-              className={`${glassCardClass} h-[320px]`}
-            >
-              <CarouselComp />
-            </motion.div>
+            {/* Subtitle */}
+            <p className="text-base sm:text-lg text-slate-300 max-w-2xl leading-relaxed font-normal">
+              Meet Chacha Chaudhary in full 3D interactive avatar. Powered by grounded RAG, bilingual Hindi-English intelligence, and river conservation data from the National Mission for Clean Ganga.
+            </p>
 
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.2 }}
-              className={`${glassCardClass} p-8 flex items-center justify-center text-center h-[320px]`}
-            >
-              <div>
-                <h1 className={`text-4xl font-extrabold mb-4 ${textGradient}`}>{t('home.heroTitle')}</h1>
-                <p className="text-gray-300 text-lg leading-relaxed">{t('home.heroDesc')}</p>
+            {/* Quick Action Buttons */}
+            <div className="flex flex-wrap items-center gap-3.5 pt-2">
+              <button
+                onClick={() => handleLaunchChat()}
+                className="group relative overflow-hidden flex items-center gap-2.5 px-6 py-3.5 rounded-2xl bg-gradient-to-r from-ganga-600 via-cyan-500 to-ganga-600 bg-[length:200%_auto] hover:bg-right text-white font-semibold text-sm sm:text-base shadow-glow-cyan transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
+              >
+                <MessageSquare className="w-5 h-5" />
+                <span>Talk to Chacha Chaudhary</span>
+                <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
+              </button>
+
+              <button
+                onClick={() => navigate('/warRoom_museum')}
+                className="flex items-center gap-2 px-5 py-3.5 rounded-2xl bg-white/6 hover:bg-white/10 border border-white/12 text-slate-200 hover:text-white font-medium text-sm sm:text-base transition-all duration-200"
+              >
+                <Landmark className="w-4 h-4 text-cyan-400" />
+                <span>Virtual Museum</span>
+              </button>
+
+              <button
+                onClick={() => navigate('/games')}
+                className="flex items-center gap-2 px-5 py-3.5 rounded-2xl bg-white/6 hover:bg-white/10 border border-white/12 text-slate-200 hover:text-white font-medium text-sm sm:text-base transition-all duration-200"
+              >
+                <Gamepad2 className="w-4 h-4 text-emerald-400" />
+                <span>Play Quests</span>
+              </button>
+            </div>
+
+            {/* Interactive Prompt Chips */}
+            <div className="pt-4 border-t border-white/8">
+              <span className="text-xs uppercase font-mono tracking-wider text-slate-400 block mb-2.5">
+                Suggested Questions to Ask Chacha:
+              </span>
+              <div className="flex flex-wrap gap-2">
+                {samplePrompts.map((p, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => handleLaunchChat(p.text)}
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs bg-white/5 hover:bg-white/10 border border-white/8 hover:border-ganga-400/40 text-slate-300 hover:text-cyan-200 transition-all duration-200 group text-left"
+                  >
+                    <span>{p.icon}</span>
+                    <span className="truncate max-w-[260px] sm:max-w-none">{p.text}</span>
+                    <ChevronRight className="w-3 h-3 opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
+                  </button>
+                ))}
               </div>
-            </motion.div>
+            </div>
           </div>
 
-          {/* Right Column: 3D Bot */}
-          <div className="flex-1 max-w-xl flex items-center justify-center" ref={botContainerRef}>
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ duration: 0.8 }}
-              className={`${glassCardClass} w-full h-[664px] flex items-center justify-center relative bg-gradient-to-b from-white/5 to-transparent`}
-            >
-              <div className="w-full h-full rounded-3xl overflow-hidden relative">
-                {!loadBot ? (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-4">
-                    <div className="text-gray-400 text-lg">{t('home.3dNotLoaded')}</div>
-                    <button
-                      onClick={() => setLoadBot(true)}
-                      className="px-6 py-3 rounded-full bg-blue-600 hover:bg-blue-500 text-white font-semibold shadow-lg transition-all hover:scale-105"
-                    >
-                      {t('home.load3d')}
-                    </button>
-                    <div className='text-xs text-gray-500'>{t('home.modelDisclaimer')}</div>
+          {/* Right Column: 3D Holographic Pedestal Viewport */}
+          <div className="lg:col-span-5 flex items-center justify-center">
+            <div className="relative w-full aspect-[4/5] max-w-md sm:max-w-lg rounded-3xl p-1 bg-gradient-to-b from-cyan-500/20 via-transparent to-emerald-500/20 shadow-2xl">
+              <div className="relative w-full h-full rounded-[22px] bg-surface-900/80 backdrop-blur-2xl border border-white/10 overflow-hidden flex flex-col">
+                {/* Header status bar inside card */}
+                <div className="absolute top-4 left-4 right-4 z-20 flex items-center justify-between">
+                  <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-surface-950/70 border border-white/10 backdrop-blur-md">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    <span className="text-[11px] font-mono text-slate-300">Avatar Stream Active</span>
                   </div>
-                ) : (
-                  <Suspense fallback={<div className="flex items-center justify-center h-full text-blue-300 animate-pulse">{t('home.loadingModel')}</div>}>
+                  <button
+                    onClick={() => handleLaunchChat('Hello Chacha!')}
+                    className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-ganga-600/80 hover:bg-ganga-500 text-white text-[11px] font-semibold backdrop-blur-md transition-transform hover:scale-105"
+                  >
+                    <Play className="w-2.5 h-2.5 fill-current" />
+                    <span>Start Voice</span>
+                  </button>
+                </div>
+
+                {/* 3D Model Canvas Viewport */}
+                <div className="relative flex-1 w-full h-full">
+                  <Suspense
+                    fallback={
+                      <div className="flex flex-col items-center justify-center h-full gap-3 text-slate-400">
+                        <div className="w-8 h-8 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />
+                        <span className="text-xs font-mono">Initializing 3D Mascot...</span>
+                      </div>
+                    }
+                  >
                     <Bot />
                   </Suspense>
-                )}
-              </div>
-            </motion.div>
-          </div>
-        </div>
-      </div>
 
-      {/* Features Section */}
-      <section id="features" className="relative z-10 w-full py-20 bg-black/20 backdrop-blur-sm border-y border-white/5">
-        <div className="container mx-auto px-4">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            className="text-center mb-12"
-          >
-            <h2 className={`text-3xl md:text-5xl font-bold mb-4 ${textGradient}`}>{t('home.featuresTitle')}</h2>
-            <p className="text-gray-400 max-w-2xl mx-auto text-lg">{t('home.featuresDesc')}</p>
-          </motion.div>
-
-          <div className="grid md:grid-cols-3 gap-8 max-w-6xl mx-auto">
-            {[
-              { title: t('home.featChatTitle'), desc: t('home.featChatDesc'), emoji: '💬', color: 'from-blue-500/20 to-cyan-500/20' },
-              { title: t('home.featEcoTitle'), desc: t('home.featEcoDesc'), emoji: '🌿', color: 'from-emerald-500/20 to-green-500/20' },
-              { title: t('home.featNavTitle'), desc: t('home.featNavDesc'), emoji: '🧭', color: 'from-purple-500/20 to-indigo-500/20' },
-            ].map((f, i) => (
-              <motion.div
-                key={i}
-                initial={{ opacity: 0, y: 30 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ delay: i * 0.1 }}
-                whileHover={{ y: -10 }}
-                className={`${glassCardClass} p-8 relative group`}
-              >
-                <div className={`absolute inset-0 bg-gradient-to-br ${f.color} opacity-0 group-hover:opacity-100 transition-opacity duration-500`} />
-                <div className="relative z-10">
-                  <div className="text-5xl mb-6">{f.emoji}</div>
-                  <h3 className="text-xl font-bold text-white mb-3">{f.title}</h3>
-                  <p className="text-gray-400 leading-relaxed">{f.desc}</p>
+                  {/* Holographic Pedestal Ambient Floor Glow */}
+                  <div className="absolute bottom-0 left-0 right-0 h-28 bg-gradient-to-t from-surface-950 via-surface-950/60 to-transparent pointer-events-none" />
+                  <div className="absolute bottom-4 left-1/2 -translate-x-1/2 w-48 h-8 rounded-full bg-cyan-400/25 blur-xl pointer-events-none" />
                 </div>
-              </motion.div>
-            ))}
-          </div>
-        </div>
-      </section>
 
-      {/* About Section */}
-      <section id="about" className="relative z-10 w-full py-20">
-        <div className="container mx-auto px-4 max-w-5xl text-center">
-          <motion.h2
-            initial={{ opacity: 0 }}
-            whileInView={{ opacity: 1 }}
-            className={`text-3xl md:text-4xl font-bold mb-6 ${textGradient}`}
-          >
-            {t('home.aboutTitle')}
-          </motion.h2>
-          <motion.p
-            initial={{ opacity: 0 }}
-            whileInView={{ opacity: 1 }}
-            className="text-gray-300 text-lg mb-12 max-w-3xl mx-auto"
-          >
-            {t('home.aboutDesc')}
-          </motion.p>
-
-          <div className="grid md:grid-cols-2 gap-8 text-left">
-            <motion.div
-              initial={{ x: -30, opacity: 0 }}
-              whileInView={{ x: 0, opacity: 1 }}
-              className={`${glassCardClass} p-8 bg-blue-900/20 border-blue-500/30`}
-            >
-              <h3 className="text-xl font-bold text-blue-300 mb-3">{t('home.missionTitle')}</h3>
-              <p className="text-gray-400">{t('home.missionDesc')}</p>
-            </motion.div>
-            <motion.div
-              initial={{ x: 30, opacity: 0 }}
-              whileInView={{ x: 0, opacity: 1 }}
-              className={`${glassCardClass} p-8 bg-emerald-900/20 border-emerald-500/30`}
-            >
-              <h3 className="text-xl font-bold text-emerald-300 mb-3">{t('home.visionTitle')}</h3>
-              <p className="text-gray-400">{t('home.visionDesc')}</p>
-            </motion.div>
-          </div>
-        </div>
-      </section>
-
-      {/* Stats Section */}
-      <section id="stats" className="relative z-10 w-full py-16 bg-white/5 border-y border-white/10">
-        <div className="container mx-auto px-4">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-8 text-center max-w-4xl mx-auto">
-            {[
-              { stat: '4', label: t('home.statsModules') },
-              { stat: '100+', label: t('home.statsFacts') },
-              { stat: '24/7', label: t('home.statsAvail') },
-              { stat: 'Kids', label: t('home.statsKids') }
-            ].map((s, i) => (
-              <motion.div
-                key={i}
-                initial={{ scale: 0.5, opacity: 0 }}
-                whileInView={{ scale: 1, opacity: 1 }}
-                transition={{ delay: i * 0.1, type: "spring" }}
-                className="flex flex-col items-center"
-              >
-                <span className={`text-4xl md:text-5xl font-bold ${textGradient}`}>{s.stat}</span>
-                <span className="text-gray-400 mt-2 font-medium">{s.label}</span>
-              </motion.div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Contact Section */}
-      <section id="contact" className="relative z-10 w-full py-20">
-        <div className="container mx-auto px-4 max-w-5xl">
-          <div className="text-center mb-12">
-            <h2 className={`text-3xl md:text-4xl font-bold mb-4 ${textGradient}`}>{t('home.contactTitle')}</h2>
-            <p className="text-gray-400">{t('home.contactDesc')}</p>
-          </div>
-
-          <div className="grid md:grid-cols-12 gap-8">
-            <motion.div
-              initial={{ opacity: 0, x: -20 }}
-              whileInView={{ opacity: 1, x: 0 }}
-              className={`md:col-span-7 ${glassCardClass} p-8`}
-            >
-              <form className="space-y-4">
-                <div className="grid sm:grid-cols-2 gap-4">
-                  <input className="w-full bg-gray-800/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:ring-2 focus:ring-blue-500 outline-none" placeholder={t('home.formName')} required />
-                  <input className="w-full bg-gray-800/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:ring-2 focus:ring-blue-500 outline-none" type="email" placeholder={t('home.formEmail')} required />
-                </div>
-                <input className="w-full bg-gray-800/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:ring-2 focus:ring-blue-500 outline-none" placeholder={t('home.formSubject')} />
-                <textarea className="w-full bg-gray-800/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:ring-2 focus:ring-blue-500 outline-none min-h-[120px]" placeholder={t('home.formMessage')} required />
-                <button type="submit" className="w-full py-3 rounded-lg bg-gradient-to-r from-blue-600 to-cyan-600 text-white font-bold shadow-lg hover:shadow-blue-500/30 transition-all">
-                  {t('home.formSend')}
-                </button>
-              </form>
-            </motion.div>
-
-            <motion.div
-              initial={{ opacity: 0, x: 20 }}
-              whileInView={{ opacity: 1, x: 0 }}
-              className={`md:col-span-5 ${glassCardClass} p-8 flex flex-col justify-center`}
-            >
-              <div className="space-y-8">
-                <div>
-                  <h3 className="font-bold text-xl text-white mb-1">Harshavardhan V Kurtkoti</h3>
-                  <a href="mailto:kurtkoti.harsha@gmial.com" className="text-blue-400 hover:text-blue-300 transition-colors block">kurtkoti.harsha@gmial.com</a>
-                  <a href="tel:+917892125856" className="text-gray-400 hover:text-white transition-colors block mt-1">+91 78921 25856</a>
-                </div>
-                <div>
-                  <h3 className="font-bold text-xl text-white mb-1">Ananya R</h3>
-                  <a href="mailto:anublr04@gmail.com" className="text-blue-400 hover:text-blue-300 transition-colors block">anublr04@gmail.com</a>
+                {/* Bottom info banner */}
+                <div className="relative z-20 px-4 py-3 bg-surface-950/90 border-t border-white/8 backdrop-blur-md flex items-center justify-between">
+                  <div className="flex flex-col">
+                    <span className="text-xs font-headline font-bold text-white">Chacha Chaudhary</span>
+                    <span className="text-[10px] text-slate-400">Official Mascot • Diamond Toons & NMCG</span>
+                  </div>
+                  <span className="text-[11px] font-mono text-cyan-400 bg-cyan-950/60 px-2 py-0.5 rounded border border-cyan-500/30">
+                    Bilingual Voice
+                  </span>
                 </div>
               </div>
-            </motion.div>
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      {/* Chat popup */}
-      {showChat && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm p-4" onClick={(e) => { if (e.target === e.currentTarget) setShowChat(false); }}>
-          <motion.div
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            className="relative w-full max-w-6xl h-[85vh] bg-gray-900 rounded-3xl overflow-hidden border border-gray-700 shadow-2xl flex"
-          >
-            <button className="absolute top-4 right-4 z-50 p-2 bg-gray-800 rounded-full text-gray-400 hover:text-white hover:bg-gray-700 transition-colors" onClick={() => setShowChat(false)}>
-              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+        {/* =========================================================================
+            2. IMPACT METRICS / REAL-TIME STATS BAR
+           ========================================================================= */}
+        <section className="mb-20">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-6 rounded-3xl glass-panel">
+            <div className="flex flex-col items-center sm:items-start text-center sm:text-left p-3">
+              <span className="text-2xl sm:text-3xl font-extrabold font-headline gradient-text-cyan">
+                2,525 km
+              </span>
+              <span className="text-xs sm:text-sm text-slate-400 mt-1">Ganga River Length</span>
+              <span className="text-[10px] text-slate-500 font-mono mt-0.5">Himalayas to Bay of Bengal</span>
+            </div>
+
+            <div className="flex flex-col items-center sm:items-start text-center sm:text-left p-3 border-l border-white/8">
+              <span className="text-2xl sm:text-3xl font-extrabold font-headline gradient-text-emerald">
+                140+ Species
+              </span>
+              <span className="text-xs sm:text-sm text-slate-400 mt-1">Aquatic Biodiversity</span>
+              <span className="text-[10px] text-slate-500 font-mono mt-0.5">Dolphins, Otters & Gharials</span>
+            </div>
+
+            <div className="flex flex-col items-center sm:items-start text-center sm:text-left p-3 border-l border-white/8">
+              <span className="text-2xl sm:text-3xl font-extrabold font-headline gradient-text-gold">
+                ₹20,000 Cr
+              </span>
+              <span className="text-xs sm:text-sm text-slate-400 mt-1">Namami Gange Outlay</span>
+              <span className="text-[10px] text-slate-500 font-mono mt-0.5">Flagship Clean Mission</span>
+            </div>
+
+            <div className="flex flex-col items-center sm:items-start text-center sm:text-left p-3 border-l border-white/8">
+              <span className="text-2xl sm:text-3xl font-extrabold font-headline text-white">
+                5 States
+              </span>
+              <span className="text-xs sm:text-sm text-slate-400 mt-1">Basin Coverage</span>
+              <span className="text-[10px] text-slate-500 font-mono mt-0.5">UK, UP, Bihar, JH, WB</span>
+            </div>
+          </div>
+        </section>
+
+        {/* =========================================================================
+            3. MODERN BENTO GRID (21st.dev / TasteSkill Architecture)
+           ========================================================================= */}
+        <section ref={bentoRef} className="mb-24">
+          <div className="text-center max-w-3xl mx-auto mb-12">
+            <h2 className="text-xs font-mono uppercase tracking-widest text-cyan-400 mb-2">
+              Integrated Capabilities
+            </h2>
+            <h3 className="text-3xl sm:text-4xl font-extrabold font-headline tracking-tight text-white">
+              Everything You Need for River Awareness
+            </h3>
+            <p className="text-slate-400 text-sm sm:text-base mt-3">
+              Explore the four core pillars of the SmartGanga Mascot ecosystem designed for school children, citizens, and environmental researchers.
+            </p>
+          </div>
+
+          <div className="grid md:grid-cols-12 gap-6">
+            {/* Bento Card 1: AI Chatbot & RAG Engine (Col 7) */}
+            <div
+              onClick={() => handleLaunchChat()}
+              className="gsap-bento-card md:col-span-7 bento-card p-6 sm:p-8 cursor-pointer group flex flex-col justify-between min-h-[340px]"
+            >
+              <div className="flex items-start justify-between">
+                <div className="p-3 rounded-2xl bg-ganga-600/20 border border-ganga-500/30 text-cyan-400 w-fit">
+                  <MessageSquare className="w-6 h-6" />
+                </div>
+                <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/5 border border-white/10 text-xs font-mono text-cyan-300">
+                  <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Age-Adaptive AI</span>
+                </div>
+              </div>
+
+              <div className="my-6">
+                <h4 className="text-xl sm:text-2xl font-bold font-headline text-white mb-2 group-hover:text-cyan-300 transition-colors">
+                  Conversational Mascot with Document RAG
+                </h4>
+                <p className="text-slate-300 text-sm leading-relaxed">
+                  Tailored answers for kids (friendly stories), youth (practical ecological actions), and adults (NMCG policies, STP data). Includes natural Hindi voice synthesis via Piper ONNX.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-between pt-4 border-t border-white/8 text-sm font-semibold text-cyan-400 group-hover:text-cyan-300">
+                <span>Start Conversation</span>
+                <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1.5" />
+              </div>
+            </div>
+
+            {/* Bento Card 2: Ghats & Aarti Distance Radar (Col 5) */}
+            <div
+              onClick={() => navigate('/navigation')}
+              className="gsap-bento-card md:col-span-5 bento-card p-6 sm:p-8 cursor-pointer group flex flex-col justify-between min-h-[340px]"
+            >
+              <div className="flex items-start justify-between">
+                <div className="p-3 rounded-2xl bg-amber-500/20 border border-amber-500/30 text-amber-400 w-fit">
+                  <Compass className="w-6 h-6" />
+                </div>
+                <span className="px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-xs font-mono text-amber-300">
+                  Live Distance
+                </span>
+              </div>
+
+              <div className="my-6">
+                <h4 className="text-xl sm:text-2xl font-bold font-headline text-white mb-2 group-hover:text-amber-300 transition-colors">
+                  Sacred Ghats & Aarti Radar
+                </h4>
+                <p className="text-slate-300 text-sm leading-relaxed">
+                  Calculates real-time geodesic distance to Dashashwamedh Ghat in Varanasi for evening Ganga Aarti ceremonies, with map coordinate bearings.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-between pt-4 border-t border-white/8 text-sm font-semibold text-amber-400 group-hover:text-amber-300">
+                <span>Open Radar View</span>
+                <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1.5" />
+              </div>
+            </div>
+
+            {/* Bento Card 3: River Basin War Room (Col 5) */}
+            <div
+              onClick={() => navigate('/warRoom_museum')}
+              className="gsap-bento-card md:col-span-5 bento-card p-6 sm:p-8 cursor-pointer group flex flex-col justify-between min-h-[340px]"
+            >
+              <div className="flex items-start justify-between">
+                <div className="p-3 rounded-2xl bg-purple-500/20 border border-purple-500/30 text-purple-400 w-fit">
+                  <Landmark className="w-6 h-6" />
+                </div>
+                <span className="px-3 py-1 rounded-full bg-purple-500/10 border border-purple-500/20 text-xs font-mono text-purple-300">
+                  Virtual Exhibits
+                </span>
+              </div>
+
+              <div className="my-6">
+                <h4 className="text-xl sm:text-2xl font-bold font-headline text-white mb-2 group-hover:text-purple-300 transition-colors">
+                  River Basin War Room & Museum
+                </h4>
+                <p className="text-slate-300 text-sm leading-relaxed">
+                  Interactive touch exhibits guiding visitors through the history, sewage interception milestones, and ecological recovery of the Ganga basin.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-between pt-4 border-t border-white/8 text-sm font-semibold text-purple-400 group-hover:text-purple-300">
+                <span>Enter War Room</span>
+                <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1.5" />
+              </div>
+            </div>
+
+            {/* Bento Card 4: Gamified Quests & Leaderboard (Col 7) */}
+            <div
+              onClick={() => navigate('/games')}
+              className="gsap-bento-card md:col-span-7 bento-card p-6 sm:p-8 cursor-pointer group flex flex-col justify-between min-h-[340px]"
+            >
+              <div className="flex items-start justify-between">
+                <div className="p-3 rounded-2xl bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 w-fit">
+                  <Gamepad2 className="w-6 h-6" />
+                </div>
+                <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-xs font-mono text-emerald-300">
+                  <Flame className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Streak & Daily Rewards</span>
+                </div>
+              </div>
+
+              <div className="my-6">
+                <h4 className="text-xl sm:text-2xl font-bold font-headline text-white mb-2 group-hover:text-emerald-300 transition-colors">
+                  Eco-Gamification, Quests & Badges
+                </h4>
+                <p className="text-slate-300 text-sm leading-relaxed">
+                  Play river clean-up simulations, quiz challenges, and earn badges from Ganga Seedling to River Hero. Complete daily logins to maintain your streak on the live leaderboard.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-between pt-4 border-t border-white/8 text-sm font-semibold text-emerald-400 group-hover:text-emerald-300">
+                <span>Play & Earn XP</span>
+                <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1.5" />
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* =========================================================================
+            4. RIVERINE ECOLOGY DISCOVERY SECTION
+           ========================================================================= */}
+        <section className="mb-20">
+          <div className="flex flex-col sm:flex-row sm:items-end justify-between mb-8 gap-4">
+            <div>
+              <h2 className="text-xs font-mono uppercase tracking-widest text-emerald-400 mb-1">
+                Biodiversity Showcase
+              </h2>
+              <h3 className="text-2xl sm:text-3xl font-extrabold font-headline text-white">
+                Guardians of the River Basin
+              </h3>
+            </div>
+            <button
+              onClick={() => navigate('/riverine_ecology')}
+              className="flex items-center gap-2 text-sm font-semibold text-emerald-400 hover:text-emerald-300 transition-colors"
+            >
+              <span>Explore Full Encyclopedia</span>
+              <ArrowRight className="w-4 h-4" />
             </button>
+          </div>
 
-            <div className="hidden md:flex w-1/3 bg-gray-800/50 border-r border-gray-700 items-center justify-center relative">
-              <div className="absolute inset-0 bg-gradient-to-b from-blue-500/10 to-transparent pointer-events-none" />
-              <Suspense fallback={<div className="animate-pulse w-32 h-32 bg-gray-700 rounded-full" />}> <Bot /> </Suspense>
-            </div>
-
-            <div className="flex-1 bg-gray-900 relative">
-              <Suspense fallback={<div className='flex items-center justify-center h-full text-gray-500'>Loading chat interface...</div>}>
-                <ChatBot />
-              </Suspense>
-            </div>
-          </motion.div>
-        </div>
-      )}
-
-      {showGreeting && <GreetingPopup onClose={() => setShowGreeting(false)} />}
-    </section>
+          <CarouselsReco onPromptSelect={(p) => handleLaunchChat(p)} />
+        </section>
+      </div>
+    </div>
   );
 };
 

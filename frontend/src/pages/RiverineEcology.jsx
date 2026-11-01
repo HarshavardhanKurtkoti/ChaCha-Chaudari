@@ -1,189 +1,170 @@
-
+import PropTypes from 'prop-types';
 import CarouselsReco from 'components/CarouselsReco';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'hooks/useTranslation';
+import { Waves, Droplets, Trees, ShieldAlert, Sparkles, Fish, Compass, ArrowRight } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
-const sectionVariants = {
-  hidden: { opacity: 0, y: 18 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.45 } },
-};
-
-function StatCard({ value, label, accent = 'bg-blue-500' }) {
+function StatCard({ value, label, sublabel, accent = 'text-cyan-400' }) {
   return (
     <motion.div
-      initial={{ opacity: 0, y: 8, scale: 0.98 }}
-      whileInView={{ opacity: 1, y: 0, scale: 1 }}
+      initial={{ opacity: 0, y: 12 }}
+      whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true }}
-      whileHover={{ y: -6, scale: 1.02 }}
-      transition={{ type: 'spring', stiffness: 160, damping: 18 }}
-      className={`rounded-xl p-4 ${accent} text-white shadow-lg flex flex-col border border-white/10`}
+      whileHover={{ y: -4 }}
+      transition={{ duration: 0.3 }}
+      className="bento-card p-5 flex flex-col justify-between"
     >
-      <div className="text-2xl font-extrabold">{value}</div>
-      <div className="text-sm opacity-90 mt-1">{label}</div>
+      <div className={`text-2xl sm:text-3xl font-extrabold font-headline ${accent}`}>{value}</div>
+      <div className="text-xs sm:text-sm font-semibold text-slate-200 mt-2">{label}</div>
+      {sublabel && <div className="text-[10px] text-slate-400 font-mono mt-0.5">{sublabel}</div>}
     </motion.div>
   );
 }
 
-function InfoCard({ title, children }) {
+StatCard.propTypes = {
+  value: PropTypes.string.isRequired,
+  label: PropTypes.string.isRequired,
+  sublabel: PropTypes.string,
+  accent: PropTypes.string,
+};
+
+function InfoCard({ icon: Icon, title, tag, children }) {
   return (
     <motion.article
-      variants={sectionVariants}
-      initial="hidden"
-      whileInView="show"
+      initial={{ opacity: 0, y: 16 }}
+      whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, amount: 0.15 }}
-      className="rounded-xl bg-gray-800/50 backdrop-blur-md shadow-xl p-6 border border-gray-700 h-full flex flex-col hover:bg-gray-800/70 transition-colors"
+      transition={{ duration: 0.4 }}
+      className="bento-card p-6 sm:p-7 flex flex-col justify-between group"
     >
-      <h3 className="text-xl font-semibold text-blue-400 mb-4">{title}</h3>
-      <motion.div initial={{ opacity: 0 }} whileInView={{ opacity: 1 }} transition={{ duration: 0.45 }} className="text-gray-300 prose prose-invert max-w-none flex-grow">
-        {children}
-      </motion.div>
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          {Icon && (
+            <div className="p-2.5 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 w-fit">
+              <Icon className="w-5 h-5" />
+            </div>
+          )}
+          {tag && (
+            <span className="text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-white/5 border border-white/10 text-slate-300">
+              {tag}
+            </span>
+          )}
+        </div>
+        <h3 className="text-lg sm:text-xl font-bold font-headline text-white mb-3 group-hover:text-cyan-300 transition-colors">
+          {title}
+        </h3>
+        <div className="text-slate-300 text-sm leading-relaxed space-y-3">
+          {children}
+        </div>
+      </div>
     </motion.article>
   );
 }
 
+InfoCard.propTypes = {
+  icon: PropTypes.elementType,
+  title: PropTypes.string.isRequired,
+  tag: PropTypes.string,
+  children: PropTypes.node.isRequired,
+};
+
 function RiverineEcology() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white pb-16 pt-20">
-      {/* HERO */}
-      <header className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-8">
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
-          className="rounded-3xl overflow-hidden bg-gradient-to-r from-blue-900/80 to-emerald-900/80 backdrop-blur-xl border border-white/10 text-white shadow-2xl p-6 sm:p-8 md:p-12 flex flex-col md:flex-row items-center gap-8 relative"
-        >
-          <div className="absolute inset-0 bg-grid-white/[0.05] bg-[length:20px_20px]" />
-          <div className="flex-1 relative z-10">
-            <h1 className="text-3xl md:text-4xl font-extrabold leading-tight">{t('ecology.title')}</h1>
-            <p className="mt-4 text-lg text-gray-200">{t('ecology.subtitle')}</p>
-            <div className="mt-8 grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <StatCard value="1,086,000 km²" label={t('ecology.stats.area')} accent="bg-indigo-600/80" />
-              <StatCard value="260 MLD" label={t('ecology.stats.waste')} accent="bg-red-600/80" />
-              <StatCard value="150+" label={t('ecology.stats.species')} accent="bg-emerald-600/80" />
-              <StatCard value="24/7" label={t('ecology.stats.chat')} accent="bg-blue-700/80" />
+    <div className="min-h-screen bg-surface-950 text-slate-100 pb-24 pt-28 px-4 sm:px-6">
+      {/* Background Ambience */}
+      <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
+        <div className="absolute top-[-10%] left-[-10%] w-[50vw] h-[50vw] rounded-full bg-emerald-600/10 blur-[150px]" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-[50vw] h-[50vw] rounded-full bg-cyan-600/10 blur-[150px]" />
+      </div>
+
+      <div className="relative z-10 max-w-7xl mx-auto space-y-12">
+        {/* Hero Header */}
+        <header className="rounded-3xl glass-panel p-6 sm:p-10 relative overflow-hidden">
+          <div className="max-w-3xl space-y-4">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-xs font-mono">
+              <Waves className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Ganga Basin Hydro-Ecological System</span>
             </div>
+            <h1 className="text-3xl sm:text-5xl font-extrabold font-headline tracking-tight text-white leading-tight">
+              {t('ecology.title') || 'Riverine Ecology & Biodiversity'}
+            </h1>
+            <p className="text-slate-300 text-sm sm:text-base leading-relaxed">
+              {t('ecology.subtitle') || 'Explore the critical aquatic habitats, ecological sanctuaries, and biodiversity recovery programmes supported across the entire Ganges river basin.'}
+            </p>
           </div>
 
-          <div className="w-full md:w-2/5 relative z-10">
-            <motion.div
-              initial={{ scale: 0.98 }}
-              whileInView={{ scale: 1 }}
-              transition={{ duration: 0.45 }}
-              className="rounded-xl overflow-hidden bg-gray-800/50 p-3 border border-white/10"
-            >
-              <CarouselsReco />
-            </motion.div>
+          {/* Stat Cards */}
+          <div className="mt-8 grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <StatCard value="1,086,000 km²" label="Basin Catchment Area" sublabel="India's largest river basin" accent="gradient-text-cyan" />
+            <StatCard value="150+ Species" label="Freshwater Fish Species" sublabel="Including Golden Mahseer" accent="gradient-text-emerald" />
+            <StatCard value="2,525 km" label="Main Stem River Length" sublabel="Origin to Bay of Bengal" accent="gradient-text-gold" />
+            <StatCard value="11 States" label="Complete Basin Reach" sublabel="43% of Indian population" accent="text-cyan-400" />
           </div>
-        </motion.div>
-      </header>
+        </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-12">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          {/* Main Content - Left Side */}
-          <section className="lg:col-span-8 space-y-8">
-            <motion.div
-              initial="hidden"
-              whileInView="show"
-              variants={{ show: { transition: { staggerChildren: 0.12 } } }}
-              className="space-y-8"
+        {/* Interactive Species Carousel */}
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl sm:text-2xl font-bold font-headline text-white flex items-center gap-2">
+              <Fish className="w-5 h-5 text-cyan-400" />
+              <span>Flagship Riverine Species</span>
+            </h2>
+            <button
+              onClick={() => navigate('/chat', { state: { initialPrompt: 'Tell me about all the aquatic animals in the Ganga river' } })}
+              className="text-xs text-cyan-400 hover:text-cyan-300 flex items-center gap-1 font-semibold"
             >
-              <InfoCard title={t('ecology.intro.title')}>
-                <ul className="list-disc pl-5 space-y-3">
-                  <li>{t('ecology.intro.p1')}</li>
-                  <li>{t('ecology.intro.p2')}</li>
-                </ul>
-              </InfoCard>
+              <span>Ask Chacha about Wildlife</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+          <CarouselsReco onPromptSelect={(p) => navigate('/chat', { state: { initialPrompt: p } })} />
+        </section>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <InfoCard title={t('ecology.basin.title')}>
-                  <p>{t('ecology.basin.p1')}</p>
-                  <ul className="list-disc pl-5 mt-4 space-y-2">
-                    <li>{t('ecology.basin.l1')}</li>
-                    <li>{t('ecology.basin.l2')}</li>
-                  </ul>
-                </InfoCard>
+        {/* Detailed Ecology Bento Cards */}
+        <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <InfoCard icon={Droplets} title="Hydrology & Stream Health" tag="Water Quality">
+            <p>
+              The Ganga is characterized by unique sediment transport dynamics and seasonal monsoonal floods. Ensuring environmental flow (E-Flow) is critical to preserving riparian zones and maintaining natural oxygenation levels.
+            </p>
+          </InfoCard>
 
-                <InfoCard title={t('ecology.bio.title')}>
-                  <p>{t('ecology.bio.p1')}</p>
-                  <p className="mt-3">{t('ecology.bio.p2')}</p>
-                </InfoCard>
-              </div>
+          <InfoCard icon={Fish} title="Aquatic Sanctuaries" tag="National Aquatic Animal">
+            <p>
+              The Gangetic River Dolphin is a bio-indicator for river health. Vikramshila Gangetic Dolphin Sanctuary in Bihar represents one of the premier protected zones safeguarding their echolocating populations.
+            </p>
+          </InfoCard>
 
-              <InfoCard title={t('ecology.toxic.title')}>
-                <ul className="list-disc pl-5 space-y-3">
-                  <li>{t('ecology.toxic.l1')}</li>
-                  <li>{t('ecology.toxic.l2')}</li>
-                  <li>{t('ecology.toxic.l3')}</li>
-                </ul>
-              </InfoCard>
-            </motion.div>
-          </section>
+          <InfoCard icon={Trees} title="Riparian Forestry & Afforestation" tag="Ecosystem Buffer">
+            <p>
+              Under Namami Gange, extensive afforestation along both riverbanks prevents silt erosion, regulates surface temperature, and restores natural riverine wetlands for migratory waterfowl.
+            </p>
+          </InfoCard>
 
-          {/* Sidebar - Right Side */}
-          <aside className="lg:col-span-4 space-y-6">
-            <motion.div
-              initial={{ opacity: 0, y: 12 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.45 }}
-              className="rounded-xl bg-gray-800/50 backdrop-blur-md shadow-xl p-6 border border-gray-700"
-            >
-              <h4 className="font-semibold text-blue-300 text-lg mb-4">{t('ecology.quickFacts')}</h4>
-              <ul className="text-sm text-gray-300 list-disc pl-5 space-y-3">
-                <li>{t('ecology.quickFactsList.fact1')}</li>
-                <li>{t('ecology.quickFactsList.fact2')}</li>
-                <li>{t('ecology.quickFactsList.fact3')}</li>
-              </ul>
-            </motion.div>
+          <InfoCard icon={ShieldAlert} title="Pollution Abatement & STPs" tag="Clean Water Mission">
+            <p>
+              Over 100 Sewage Treatment Plants (STPs) have been deployed across major cities like Kanpur, Varanasi, and Prayagraj to treat domestic and industrial effluent before discharging into the river.
+            </p>
+          </InfoCard>
 
-            <motion.div
-              initial={{ opacity: 0, y: 12 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.45, delay: 0.06 }}
-              className="rounded-xl bg-gray-800/50 backdrop-blur-md shadow-xl p-6 border border-gray-700"
-            >
-              <h4 className="font-semibold text-blue-300 text-lg mb-4">{t('ecology.explore')}</h4>
-              <div className="flex flex-col gap-3">
-                <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  className="w-full text-left px-4 py-3 rounded-lg bg-gray-700 hover:bg-gray-600 text-gray-200 transition-colors font-medium"
-                >
-                  {t('ecology.exploreButtons.species')}
-                </motion.button>
-                <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  className="w-full text-left px-4 py-3 rounded-lg bg-gray-700 hover:bg-gray-600 text-gray-200 transition-colors font-medium"
-                >
-                  {t('ecology.exploreButtons.threats')}
-                </motion.button>
-                <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  className="w-full text-left px-4 py-3 rounded-lg bg-gray-700 hover:bg-gray-600 text-gray-200 transition-colors font-medium"
-                >
-                  {t('ecology.exploreButtons.stories')}
-                </motion.button>
-              </div>
-            </motion.div>
+          <InfoCard icon={Sparkles} title="Community Rejuvenation" tag="Citizen Action">
+            <p>
+              Ganga Praharis and local volunteers monitor water clarity, clean ghats, and protect nesting sites for freshwater turtles and gharials during annual breeding seasons.
+            </p>
+          </InfoCard>
 
-            <motion.div
-              initial={{ opacity: 0, y: 12 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.45, delay: 0.12 }}
-              className="rounded-xl bg-gray-800/50 backdrop-blur-md shadow-xl p-6 border border-gray-700"
-            >
-              <h4 className="font-semibold text-blue-300 text-lg mb-4">{t('ecology.learnMore')}</h4>
-              <p className="text-sm text-gray-300 leading-relaxed">{t('ecology.learnMoreDesc')}</p>
-            </motion.div>
-          </aside>
-        </div>
-      </main>
+          <InfoCard icon={Compass} title="AI Mascot Educational Connect" tag="SmartGanga">
+            <p>
+              Chacha Chaudhary serves as the conversational bridge, turning scientific ecological telemetry into accessible comic lessons for youth, inspiring the next generation of river champions.
+            </p>
+          </InfoCard>
+        </section>
+      </div>
     </div>
   );
 }
 
 export default RiverineEcology;
-

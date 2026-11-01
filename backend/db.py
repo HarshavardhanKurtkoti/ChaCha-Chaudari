@@ -1,15 +1,16 @@
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 
 # Try to import pymongo; if unavailable or connection fails, we'll fall back to in-memory collections
 try:
-    from pymongo import MongoClient, ASCENDING  # type: ignore
+    from pymongo import MongoClient, ASCENDING, DESCENDING  # type: ignore
     _pymongo_available = True
 except Exception:  # pragma: no cover
     _pymongo_available = False
     MongoClient = None  # type: ignore
     ASCENDING = 1  # type: ignore
+    DESCENDING = -1  # type: ignore
 
 load_dotenv()
 
@@ -20,6 +21,20 @@ MONGODB_DB = os.getenv('MONGODB_DB', 'capstone_db')
 class _InsertOneResult:
     def __init__(self, inserted_id=None):
         self.inserted_id = inserted_id
+
+
+class _InMemoryCursor(list):
+    def sort(self, key_or_list, direction=None):
+        if isinstance(key_or_list, list):
+            for field, d in reversed(key_or_list):
+                super().sort(key=lambda x: x.get(field, 0), reverse=(d == -1 or d == -1))
+        elif isinstance(key_or_list, str):
+            rev = (direction == -1) if direction is not None else False
+            super().sort(key=lambda x: x.get(key_or_list, 0), reverse=rev)
+        return self
+
+    def limit(self, n):
+        return _InMemoryCursor(self[:n])
 
 
 class _DeleteResult:
@@ -51,10 +66,10 @@ class _InMemoryCollection:
                         if v == 0 and k in out:
                             out.pop(k, None)
                     return out
-                return d
+                return d.copy()
         return None
 
-    def find(self, filt=None, projection=None):
+    def find(self, filt=None, projection=None, sort=None, limit=None):
         filt = filt or {}
         results = []
         for d in self._docs:
@@ -66,12 +81,19 @@ class _InMemoryCollection:
                             out.pop(k, None)
                     results.append(out)
                 else:
-                    results.append(d)
-        return results
+                    results.append(d.copy())
+        if sort:
+            # simple sort by key: list of (field, direction)
+            for field, direction in reversed(sort):
+                results.sort(key=lambda x: x.get(field, 0), reverse=(direction == -1 or direction == -1))
+        if limit:
+            results = results[:limit]
+        return _InMemoryCursor(results)
 
     def insert_one(self, doc):
-        self._docs.append(doc.copy())
-        return _InsertOneResult()
+        d = doc.copy()
+        self._docs.append(d)
+        return _InsertOneResult(d.get('_id'))
 
     def replace_one(self, filt, doc, upsert=False):
         replaced = False
@@ -82,33 +104,34 @@ class _InMemoryCollection:
                 break
         if not replaced and upsert:
             self._docs.append(doc.copy())
-        # Mimic PyMongo result object minimally (not used by app)
         return type('ReplaceOneResult', (), {'acknowledged': True})()
 
-    def update_one(self, filt, update_dict):
-        """Support simple {'$set': {...}} updates and return a minimal result
-        with attributes matched_count and modified_count to mimic PyMongo.
-        """
+    def update_one(self, filt, update_dict, upsert=False):
         matched = 0
         modified = 0
         for i, d in enumerate(self._docs):
             if self._match(d, filt):
                 matched += 1
-                # support only $set for now
                 if isinstance(update_dict, dict) and '$set' in update_dict:
                     for k, v in update_dict['$set'].items():
                         if d.get(k) != v:
                             d[k] = v
                             modified += 1
                 else:
-                    # apply a direct dict merge
                     for k, v in update_dict.items():
                         if d.get(k) != v:
                             d[k] = v
                             modified += 1
                 self._docs[i] = d
                 break
-        # Minimal result object
+        if matched == 0 and upsert:
+            new_doc = filt.copy()
+            if '$set' in update_dict:
+                new_doc.update(update_dict['$set'])
+            else:
+                new_doc.update(update_dict)
+            self._docs.append(new_doc)
+            modified += 1
         return type('UpdateResult', (), {'matched_count': matched, 'modified_count': modified})()
 
     def delete_one(self, filt):
@@ -133,8 +156,6 @@ class _InMemoryCollection:
         return len(self.find(filt))
 
     def aggregate(self, pipeline):
-        # Only implements the specific pipeline used in admin_stats
-        # [{'$group': {'_id': '$user_email', 'count': {'$sum': 1}}}, {'$sort': {'count': -1}}]
         if not pipeline:
             return iter([])
         stage1 = pipeline[0]
@@ -151,46 +172,39 @@ class _InMemoryCollection:
             return iter(rows)
         return iter([])
 
-    # No-op for indexes in memory mode
-    def create_index(self, *args, **kwargs):
-        return None
-
 
 def _init_mongo_collections():
-    """Attempt to initialize real MongoDB collections; return (users, chats) or raise."""
-    if not _pymongo_available:
-        raise RuntimeError('pymongo not available')
-    # Keep timeouts low so local dev without Mongo falls back quickly
-    client = MongoClient(
-        MONGODB_URI,
-        serverSelectionTimeoutMS=1000,
-        connectTimeoutMS=1000,
-        socketTimeoutMS=1000,
-    )
+    if not _pymongo_available or MongoClient is None:
+        raise RuntimeError('PyMongo not installed')
+    client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=1500)
+    client.server_info()
     db = client[MONGODB_DB]
     users = db['users']
     chats = db['chats']
-    # This will trigger connection at import time; guard with try/except
+    game_progress = db['game_progress']
+    locations = db['locations']
     try:
         users.create_index('email', unique=True)
         chats.create_index([('user_email', ASCENDING), ('id', ASCENDING)], unique=True)
         chats.create_index('user_email')
+        game_progress.create_index('user_email', unique=True)
+        locations.create_index('user_email')
     except Exception as e:
-        # Re-raise to trigger in-memory fallback
         raise RuntimeError(f'Mongo index creation failed: {e}')
-    return users, chats
+    return users, chats, game_progress, locations
 
 
 # Initialize collections with graceful fallback
 try:
-    users_collection, chats_collection = _init_mongo_collections()
+    users_collection, chats_collection, game_progress_collection, location_collection = _init_mongo_collections()
     _USING_IN_MEMORY_DB = False
 except Exception:
-    # Fallback to in-memory collections so the app can still run without Mongo
     users_collection = _InMemoryCollection()
     chats_collection = _InMemoryCollection()
+    game_progress_collection = _InMemoryCollection()
+    location_collection = _InMemoryCollection()
     _USING_IN_MEMORY_DB = True
 
 
 def utc_now_iso():
-    return datetime.utcnow().isoformat() + 'Z'
+    return datetime.now(timezone.utc).isoformat()

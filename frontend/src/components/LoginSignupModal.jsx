@@ -143,7 +143,6 @@ const LoginSignupModal = ({ isOpen, onClose, onAuthenticate }) => {
 
   // For debugging, print the origin and clientId to console
   try {
-    // eslint-disable-next-line no-console
     console.debug('LoginSignupModal origin check', { currentOrigin, allowedDevOrigins });
   } catch (e) { /* ignore */ }
 

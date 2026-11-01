@@ -15,7 +15,7 @@ const SelectLang = ({ setLang }) => {
 	const [selectedOption, setSelectedOption] = useState(options[0]);
 
 	const customStyles = {
-		control: (base, state) => ({
+		control: (base) => ({
 			...base,
 			background: 'transparent',
 			border: 'none',

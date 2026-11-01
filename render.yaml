@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: chacha-chaudari-api
+    env: docker
+    dockerfilePath: backend/Dockerfile
+    dockerContext: backend
+    plan: free
+    region: oregon
+    healthCheckPath: /health
+    envVars:
+      - key: FLASK_ENV
+        value: production
+      - key: LLM_PROVIDER
+        value: openrouter
+      - key: OPENROUTER_MODEL
+        value: openai/gpt-4o
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: ENABLE_LOCAL_LLM
+        value: "false"
+      - key: CORS_ORIGINS
+        value: "*"
+

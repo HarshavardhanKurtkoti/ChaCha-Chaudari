@@ -1,6 +1,7 @@
 import PropTypes from 'prop-types';
 import { useEffect, useMemo, useState } from 'react';
 import { useSettings } from 'context/SettingsContext';
+import { TTS_BASE_URL, getTtsUrl } from 'config/api';
 import { LANGUAGES } from '../translations';
 
 const SettingsPanel = ({ onResetProgress, onResetLeaderboard }) => {
@@ -23,8 +24,7 @@ const SettingsPanel = ({ onResetProgress, onResetLeaderboard }) => {
       setLoadingVoices(true);
       try {
         // Always query the standalone Piper proxy for voices
-        const ttsBase = (import.meta?.env?.VITE_TTS_BASE_URL || 'http://127.0.0.1:6001').replace(/\/$/, '');
-        const res = await fetch(`${ttsBase}/voices`);
+        const res = await fetch(getTtsUrl('/voices'));
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         // Piper voices: [{ id, shortName, locale }]
@@ -74,7 +74,6 @@ const SettingsPanel = ({ onResetProgress, onResetLeaderboard }) => {
   })();
   const playSample = async () => {
     try {
-      const ttsBase = (import.meta?.env?.VITE_TTS_BASE_URL || 'http://127.0.0.1:6001').replace(/\/$/, '');
       // determine the voice to send (prefer immediate selection)
       const voiceToSend = currentVoice || settings?.ttsVoice || voiceOptions[0]?.id;
       // derive a language hint from chosen Piper voice id
@@ -92,7 +91,7 @@ const SettingsPanel = ({ onResetProgress, onResetLeaderboard }) => {
         : 'I am ChaCha Chaudhary';
       const body = { text: sample, voice: voiceToSend, rate: settings?.ttsRate, lang: langToSend };
       console.debug('TTS sample request body:', body);
-      const res = await fetch(`${ttsBase}/tts`, {
+      const res = await fetch(getTtsUrl('/tts'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)

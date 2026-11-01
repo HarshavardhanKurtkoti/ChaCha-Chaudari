@@ -7,14 +7,15 @@ import { BrowserRouter as Router } from 'react-router-dom';
 // Lazy-load the RouteContainer so framer-motion is not in the initial App bundle
 const RouteContainer = React.lazy(() => import('./RouteContainer'));
 import bhashini from 'bhashini-translation';
-import { AuthorizationToken, userId, ulcaApiKey } from '../config'
+import { AuthorizationToken, userId, ulcaApiKey } from '../config';
+import { getApiUrl } from 'config/api';
 const UserDetailsModal = React.lazy(() => import('./components/UserDetailsModal'));
 const LoginSignupModal = React.lazy(() => import('./components/LoginSignupModal'));
 import { SettingsProvider } from 'context/SettingsContext';
 import ScrollToTop from 'components/ScrollToTop';
 import RouteSkeleton from 'components/SkullLoader';
-import PropTypes from 'prop-types';
-import { AuthUIContext } from 'context/AuthUIContext';
+import ErrorBoundary from 'components/ErrorBoundary';
+import { AuthProvider, AuthContext } from 'context/AuthContext';
 
 const App = () => {
 	const [botState, setBotState] = useState('idle');
@@ -25,8 +26,6 @@ const App = () => {
 	// The welcome flow (pages/Greeting.jsx) decides when to open it
 	// after the user dismisses the welcome popup, and other pages can
 	// open it via AuthUIContext (e.g., Account page button).
-	// Keeping this effect empty prevents the login modal from appearing
-	// before the welcome popup or immediately on page refresh.
 	React.useEffect(() => {
 		// intentionally left blank
 	}, []);
@@ -42,7 +41,7 @@ const App = () => {
 			const userToken = localStorage.getItem('userToken');
 			if (userToken) {
 				try {
-					const res = await fetch('/auth/update_profile', {
+					const res = await fetch(getApiUrl('/auth/update_profile'), {
 						method: 'POST',
 						headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${userToken}` },
 						body: JSON.stringify({ name: profile.name, age: profile.age }),
@@ -58,7 +57,7 @@ const App = () => {
 	};
 
 	const handleLoginSignup = async (details, isSignup) => {
-		const endpoint = isSignup ? '/auth/register' : '/auth/login';
+		const endpoint = isSignup ? getApiUrl('/auth/register') : getApiUrl('/auth/login');
 		const response = await fetch(endpoint, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
@@ -76,48 +75,58 @@ const App = () => {
 	const token = AuthorizationToken;
 	const user_Id = userId;
 	const apiKey = ulcaApiKey;
-	bhashini.auth(user_Id, apiKey, token);
-		return (
-			<MessageProvider>
-				<BotStateContext.Provider value={{ botState, setBotState }} >
-					<MantineProvider
-						withGlobalStyles
-						withNormalizeCSS
-						theme={{
-							fontFamily: 'Poppins',
-							headings: { fontFamily: 'Greycliff CF, sans-serif' }
-						}}>
-							<AuthUIContext.Provider value={{
-								openLoginModal: () => setShowLoginSignupModal(true),
-								closeLoginModal: () => setShowLoginSignupModal(false),
+	if (token && token !== 'your_auth_token') {
+		try {
+			bhashini.auth(user_Id, apiKey, token);
+		} catch {
+			// Ignore invalid credentials in dev
+		}
+	}
+
+	return (
+		<ErrorBoundary>
+			<AuthProvider>
+				<MessageProvider>
+					<BotStateContext.Provider value={{ botState, setBotState }}>
+						<MantineProvider
+							withGlobalStyles
+							withNormalizeCSS
+							theme={{
+								fontFamily: 'Poppins',
+								headings: { fontFamily: 'Greycliff CF, sans-serif' }
 							}}>
-								<SettingsProvider>
-									<Router>
-										<ScrollToTop />
-										<Suspense fallback={<RouteSkeleton /> }>
-											<RouteContainer />
-										</Suspense>
-									</Router>
-								</SettingsProvider>
+								<AuthContext.Consumer>
+									{() => (
+										<SettingsProvider>
+											<Router>
+												<ScrollToTop />
+												<Suspense fallback={<RouteSkeleton />}>
+													<RouteContainer />
+												</Suspense>
+											</Router>
+										</SettingsProvider>
+									)}
+								</AuthContext.Consumer>
 								<Suspense fallback={null}>
-								<UserDetailsModal
-									isOpen={showModal}
-									onClose={() => setShowModal(false)}
-									onSave={handleSaveUserDetails}
-								/>
+									<UserDetailsModal
+										isOpen={showModal}
+										onClose={() => setShowModal(false)}
+										onSave={handleSaveUserDetails}
+									/>
 								</Suspense>
 								<Suspense fallback={null}>
-								<LoginSignupModal
-									isOpen={showLoginSignupModal}
-									onClose={() => setShowLoginSignupModal(false)}
-									onAuthenticate={handleLoginSignup}
-								/>
+									<LoginSignupModal
+										isOpen={showLoginSignupModal}
+										onClose={() => setShowLoginSignupModal(false)}
+										onAuthenticate={handleLoginSignup}
+									/>
 								</Suspense>
-							</AuthUIContext.Provider>
-					</MantineProvider>
-				</BotStateContext.Provider>
-			</MessageProvider>
-		);
+						</MantineProvider>
+					</BotStateContext.Provider>
+				</MessageProvider>
+			</AuthProvider>
+		</ErrorBoundary>
+	);
 };
 
 export default App;

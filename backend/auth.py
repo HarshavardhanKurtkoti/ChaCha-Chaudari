@@ -93,7 +93,7 @@ def register():
         'email': email,
         'password': generate_password_hash(password),
         'is_admin': admin_code == ADMIN_CODE,
-        'created': datetime.utcnow().isoformat() + 'Z',
+        'created': datetime.now(timezone.utc).isoformat(),
         'age': int(age) if isinstance(age, (int, float, str)) and str(age).isdigit() else None,
     }
     users_collection.insert_one(user_doc)
@@ -144,7 +144,7 @@ def google_login():
                 'name': name,
                 'email': email,
                 'is_admin': False,
-                'created': datetime.utcnow().isoformat() + 'Z',
+                'created': datetime.now(timezone.utc).isoformat(),
                 'age': None,
                 'provider': 'google',
             }
