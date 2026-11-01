@@ -92,7 +92,8 @@ const App = () => {
 							withGlobalStyles
 							withNormalizeCSS
 							theme={{
-								fontFamily: 'Poppins',
+								colorScheme: 'dark',
+								fontFamily: 'Poppins, sans-serif',
 								headings: { fontFamily: 'Greycliff CF, sans-serif' }
 							}}>
 								<AuthContext.Consumer>
