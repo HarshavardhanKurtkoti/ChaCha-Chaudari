@@ -16,18 +16,26 @@ const getEnv = (key, fallback = '') => {
   return fallback;
 };
 
-// Normalize by removing trailing slashes
-const trimTrailingSlash = (url) => (url ? url.replace(/\/+$/, '') : '');
+// Normalize by ensuring protocol and removing trailing slashes
+const normalizeUrl = (url) => {
+  if (!url) return '';
+  let clean = url.trim().replace(/\/+$/, '');
+  // If a domain without protocol was provided (e.g. chacha-chaudari.onrender.com), auto-prefix with https://
+  if (clean && !/^https?:\/\//i.test(clean) && !clean.startsWith('/') && clean.includes('.')) {
+    clean = `https://${clean}`;
+  }
+  return clean;
+};
 
 // In Vite development, requests to /api are proxied to Flask (port 5000).
 // In production or custom environments, VITE_API_BASE_URL can override this.
 const rawApiBase = getEnv('VITE_API_BASE_URL', '');
-export const API_BASE_URL = trimTrailingSlash(
+export const API_BASE_URL = normalizeUrl(
   rawApiBase || (typeof window !== 'undefined' && window.location.origin ? '' : 'http://127.0.0.1:5000')
 );
 
 // TTS microservice (port 6001 default)
-export const TTS_BASE_URL = trimTrailingSlash(
+export const TTS_BASE_URL = normalizeUrl(
   getEnv('VITE_TTS_BASE_URL', 'http://127.0.0.1:6001')
 );
 
