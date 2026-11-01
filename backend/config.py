@@ -63,7 +63,7 @@ class Config:
     # LLM Settings & Provider Selection
     LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "openrouter").strip().lower()  # "openrouter" or "local"
     OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "")
-    OPENROUTER_MODEL: str = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o")
+    OPENROUTER_MODEL: str = os.getenv("OPENROUTER_MODEL", "openrouter/free")
     OPENROUTER_BASE_URL: str = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1/chat/completions")
 
     DEFAULT_MODEL_NAME: str = os.getenv("MODEL_PATH", "microsoft/Phi-3-mini-4k-instruct")

@@ -43,7 +43,7 @@ class LLMService:
     ):
         self.provider = os.getenv("LLM_PROVIDER", "openrouter").strip().lower()
         self.openrouter_key = os.getenv("OPENROUTER_API_KEY", "")
-        self.openrouter_model = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o")
+        self.openrouter_model = os.getenv("OPENROUTER_MODEL", "openrouter/free")
         self.openrouter_url = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1/chat/completions")
 
         self.model_name = model_name or os.getenv("MODEL_PATH", "microsoft/Phi-3-mini-4k-instruct")
@@ -208,6 +208,10 @@ class LLMService:
                 "temperature": 0.7,
             }
             resp = requests.post(self.openrouter_url, headers=headers, json=body, timeout=30)
+            if resp.status_code != 200 and self.openrouter_model != "openrouter/free":
+                log.warning("OpenRouter model %s returned %d; retrying with openrouter/free", self.openrouter_model, resp.status_code)
+                body["model"] = "openrouter/free"
+                resp = requests.post(self.openrouter_url, headers=headers, json=body, timeout=30)
             if resp.status_code == 200:
                 data = resp.json()
                 content = data["choices"][0]["message"]["content"]
@@ -236,6 +240,10 @@ class LLMService:
                 "stream": True,
             }
             resp = requests.post(self.openrouter_url, headers=headers, json=body, stream=True, timeout=30)
+            if resp.status_code != 200 and self.openrouter_model != "openrouter/free":
+                log.warning("OpenRouter stream model %s returned %d; retrying with openrouter/free", self.openrouter_model, resp.status_code)
+                body["model"] = "openrouter/free"
+                resp = requests.post(self.openrouter_url, headers=headers, json=body, stream=True, timeout=30)
             if resp.status_code != 200:
                 log.error("OpenRouter stream failed with %d: %s", resp.status_code, resp.text)
                 return

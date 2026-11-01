@@ -13,7 +13,7 @@ services:
       - key: LLM_PROVIDER
         value: openrouter
       - key: OPENROUTER_MODEL
-        value: openai/gpt-4o
+        value: openrouter/free
       - key: OPENROUTER_API_KEY
         sync: false
       - key: ENABLE_LOCAL_LLM
